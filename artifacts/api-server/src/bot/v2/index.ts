@@ -49,10 +49,11 @@ function buildContainer(options: {
   title: string;
   body: string;
   avatarUrl?: string | null;
-  accentColor: number;
+  accentColor?: number;
 }): ContainerBuilder {
   const { title, body, avatarUrl, accentColor } = options;
-  const c = new ContainerBuilder().setAccentColor(accentColor);
+  const c = new ContainerBuilder();
+  if (accentColor !== undefined) c.setAccentColor(accentColor);
 
   if (avatarUrl) {
     c.addSectionComponents(
