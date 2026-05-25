@@ -84,21 +84,20 @@ export const ticketCommand: BotCommand = {
               .setLabel(t.label)
               .setValue(t.value)
               .setDescription(t.description)
-              .setEmoji(t.emoji)
           )
         );
 
       const menuRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
 
-      const descricao =
-        "Após solicitar um atendimento, aguarde um integrante da equipe responde-lo(a). " +
-        "O atendimento é realizado de forma privada, contudo, somente integrantes da equipe terá acesso ao atendimento. " +
-        "Tenha ciência que a nossa equipe não se encontra presente 24 horas por dia, contudo, dentro dos horários " +
-        "citados acima nossa equipe se encontra disponibilizada a atende-lo(a).\n" +
-        "Clique nos botões abaixo para continuar:";
+      const descricao = [
+        "> Após solicitar um atendimento, aguarde um integrante da equipe responde-lo(a).",
+        "> O atendimento é realizado de forma privada, contudo, somente integrantes da equipe terá acesso ao atendimento.",
+        "> Tenha ciência que a nossa equipe não se encontra presente 24 horas por dia, contudo, dentro dos horários citados acima nossa equipe se encontra disponibilizada a atende-lo(a).",
+        ">",
+        "> Clique nos botões abaixo para continuar:",
+      ].join("\n");
 
       const container = new ContainerBuilder()
-        .setAccentColor(COLORS.ticket)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${titulo}`))
         .addSeparatorComponents(
           new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
