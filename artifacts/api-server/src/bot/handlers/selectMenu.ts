@@ -81,12 +81,25 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
     });
   }
 
+  const botId = interaction.client.user.id;
+
   const channel = await guild.channels.create({
     name: ticketName,
     type: ChannelType.GuildText,
     parent: category.id,
     permissionOverwrites: [
       { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: botId,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.ManageMessages,
+          PermissionFlagsBits.ManageChannels,
+        ],
+      },
       {
         id: interaction.user.id,
         allow: [
