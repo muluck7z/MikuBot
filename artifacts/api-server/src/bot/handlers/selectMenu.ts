@@ -113,8 +113,13 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
   const btnClose   = dangerButton("ticket:confirm_close", "🔒 Fechar Ticket");
   const btnClaim   = secondaryButton("ticket:claim", "🙋 Assumir Ticket");
 
+  // Mention enviada separadamente — conteúdo de texto não pode ser misturado com IS_COMPONENTS_V2
   await (channel as TextChannel).send({
     content: `${interaction.user} | <@&${SUPPORT_ROLE_ID}>`,
+    allowedMentions: { users: [interaction.user.id], roles: [SUPPORT_ROLE_ID] },
+  });
+
+  await (channel as TextChannel).send({
     ...v2Reply(
       [
         infoContainer({
