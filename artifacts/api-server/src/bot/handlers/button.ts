@@ -67,9 +67,8 @@ async function handleTicketButton(interaction: ButtonInteraction, action: string
           description: [
             `Este ticket será encerrado <t:${closeTime}:R>.`,
             "",
-            "Obrigado por entrar em contato com nossa equipe! 💙",
+            "Obrigado por entrar em contato com nossa equipe!",
           ].join("\n"),
-          accentColor: COLORS.lock,
         }),
       ])
     );
@@ -90,17 +89,16 @@ async function handleTicketButton(interaction: ButtonInteraction, action: string
       return;
     }
 
-    const btnConfirm = dangerButton("ticket:confirm_cancel_user", "✅ Sim, cancelar");
-    const btnBack    = secondaryButton("ticket:cancel_close", "⬅️ Voltar");
+    const btnConfirm = dangerButton("ticket:confirm_cancel_user", "Sim, cancelar");
+    const btnBack    = secondaryButton("ticket:cancel_close", "Voltar");
 
     await interaction.reply(
       v2Reply(
         [
           infoContainer({
-            title: "❌ Cancelar Ticket",
+            title: "Cancelar Ticket",
             description:
               "Tem certeza que deseja cancelar este ticket?\nO canal será removido e nenhum moderador terá sido notificado.",
-            accentColor: COLORS.warning,
           }),
         ],
         { buttons: [row(btnConfirm, btnBack)], ephemeral: true }
@@ -117,9 +115,8 @@ async function handleTicketButton(interaction: ButtonInteraction, action: string
     await interaction.reply(
       v2Reply([
         infoContainer({
-          title: "❌ Ticket Cancelado",
+          title: "Ticket Cancelado",
           description: "Este ticket foi cancelado pelo usuário. O canal será removido em **5 segundos**.",
-          accentColor: COLORS.danger,
         }),
       ])
     );
@@ -154,10 +151,9 @@ async function handleTicketButton(interaction: ButtonInteraction, action: string
     await interaction.reply(
       v2Reply([
         infoContainer({
-          title: "🙋 Ticket Assumido",
+          title: "Ticket Assumido",
           description: `${interaction.user} é o responsável por este atendimento.\n\nPor favor, aguarde enquanto nossa equipe analisa sua solicitação.`,
           avatarUrl: interaction.user.displayAvatarURL({ size: 256 }),
-          accentColor: COLORS.success,
         }),
       ])
     );
