@@ -21,10 +21,10 @@ const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 const SUPPORT_ROLE_ID = "1497801117940056125";
 
 const TICKET_TYPE_LABELS: Record<string, string> = {
-  suporte: "🛠️ Suporte Geral",
-  duvidas: "❓ Dúvidas",
-  denuncia: "🚨 Denúncia",
-  financeiro: "💰 Financeiro",
+  suporte: "Suporte Geral",
+  duvidas: "Dúvidas",
+  denuncia: "Denúncia",
+  financeiro: "Financeiro",
 };
 
 export async function handleSelectMenu(interaction: StringSelectMenuInteraction) {
@@ -122,9 +122,9 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
     ],
   });
 
-  const btnCancel  = secondaryButton("ticket:cancel_user", "❌ Cancelar");
-  const btnClose   = dangerButton("ticket:confirm_close", "🔒 Fechar Ticket");
-  const btnClaim   = secondaryButton("ticket:claim", "🙋 Assumir Ticket");
+  const btnCancel  = secondaryButton("ticket:cancel_user", "Cancelar");
+  const btnClose   = dangerButton("ticket:confirm_close", "Fechar Ticket");
+  const btnClaim   = secondaryButton("ticket:claim", "Assumir Ticket");
 
   // Mention enviada separadamente — conteúdo de texto não pode ser misturado com IS_COMPONENTS_V2
   await (channel as TextChannel).send({
@@ -142,10 +142,9 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
             "",
             "Por favor, **descreva detalhadamente** o seu problema ou solicitação e aguarde — um membro da nossa equipe entrará em contato o mais breve possível.",
             "",
-            "⚠️ **Atenção:** caso nenhuma mensagem seja enviada, o ticket poderá ser encerrado automaticamente por inatividade.",
+            "**Atenção:** caso nenhuma mensagem seja enviada, o ticket poderá ser encerrado automaticamente por inatividade.",
           ].join("\n"),
           avatarUrl: interaction.user.displayAvatarURL({ size: 256 }),
-          accentColor: COLORS.ticket,
         }),
       ],
       { buttons: [row(btnCancel, btnClose, btnClaim)] }
