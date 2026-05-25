@@ -17,6 +17,8 @@ import {
 } from "../v2/index";
 import { logger } from "../../lib/logger";
 
+const TICKET_EMOJI = "<:ticket:1508274275730063360>";
+
 export async function handleButton(interaction: ButtonInteraction) {
   const [ns, action] = interaction.customId.split(":");
 
@@ -41,79 +43,71 @@ async function handleTicketButton(interaction: ButtonInteraction, action: string
   const guild = interaction.guild;
   if (!guild) return;
 
-  if (action === "open") {
-    await interaction.deferReply({ flags: 64 });
+  if (action === "confirm_close") {
+    const channel = interaction.channel as TextChannel;
+    if (!channel.name.startsWith("ticket-")) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Este canal não é um ticket.")]));
+      return;
+    }
 
-    const safeName = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20);
-    const ticketName = `ticket-${safeName}`;
-
-    const existing = guild.channels.cache.find((c) => c.name === ticketName);
-    if (existing) {
-      await interaction.editReply(
-        v2EphemeralReply([errorContainer(`Você já possui um ticket aberto: ${existing}`)])
+    const member = await guild.members.fetch(interaction.user.id).catch(() => null);
+    if (!member?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+      await interaction.reply(
+        v2EphemeralReply([errorContainer("Apenas moderadores podem fechar tickets.")])
       );
       return;
     }
 
-    let category = guild.channels.cache.find(
-      (c) => c.name.toLowerCase() === "tickets" && c.type === ChannelType.GuildCategory
+    const closeTime = Math.floor((Date.now() + 30_000) / 1000);
+
+    await interaction.reply(
+      v2Reply([
+        infoContainer({
+          title: `${TICKET_EMOJI} Encerrando Ticket...`,
+          description: [
+            `Este ticket será encerrado <t:${closeTime}:R>.`,
+            "",
+            "Obrigado por entrar em contato com nossa equipe! 💙",
+          ].join("\n"),
+          accentColor: COLORS.lock,
+        }),
+      ])
     );
 
-    if (!category) {
-      category = await guild.channels.create({
-        name: "Tickets",
-        type: ChannelType.GuildCategory,
-        permissionOverwrites: [
-          { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-        ],
-      });
+    setTimeout(async () => {
+      await channel.delete("Ticket fechado por moderador").catch(() => null);
+    }, 30_000);
+
+  } else if (action === "cancel_close") {
+    await interaction.reply(
+      v2EphemeralReply([successContainer("Cancelado", "O fechamento do ticket foi cancelado.")])
+    );
+
+  } else if (action === "cancel_user") {
+    const channel = interaction.channel as TextChannel;
+    if (!channel.name.startsWith("ticket-")) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Este canal não é um ticket.")]));
+      return;
     }
 
-    const channel = await guild.channels.create({
-      name: ticketName,
-      type: ChannelType.GuildText,
-      parent: category.id,
-      permissionOverwrites: [
-        { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-        {
-          id: interaction.user.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory,
-            PermissionFlagsBits.AttachFiles,
-          ],
-        },
-      ],
-    });
+    const btnConfirm = dangerButton("ticket:confirm_cancel_user", "✅ Sim, cancelar");
+    const btnBack    = secondaryButton("ticket:cancel_close", "⬅️ Voltar");
 
-    const btnClose = dangerButton("ticket:confirm_close", "🔒 Fechar Ticket");
-    const btnClaim = secondaryButton("ticket:claim", "🙋 Assumir Ticket");
-
-    await (channel as TextChannel).send({
-      content: `${interaction.user}`,
-      ...v2Reply(
+    await interaction.reply(
+      v2Reply(
         [
           infoContainer({
-            title: "🎫 Ticket Aberto",
-            description: [
-              `Olá, ${interaction.user}! Bem-vindo ao seu ticket.`,
-              "",
-              "**Como podemos te ajudar?**",
-              "Descreva seu problema ou dúvida e nossa equipe responderá em breve.",
-            ].join("\n"),
-            avatarUrl: interaction.user.displayAvatarURL({ size: 256 }),
-            accentColor: COLORS.ticket,
+            title: "❌ Cancelar Ticket",
+            description:
+              "Tem certeza que deseja cancelar este ticket?\nO canal será removido e nenhum moderador terá sido notificado.",
+            accentColor: COLORS.warning,
           }),
         ],
-        { buttons: [row(btnClose, btnClaim)] }
-      ),
-    });
-
-    await interaction.editReply(
-      v2EphemeralReply([successContainer("Ticket Criado", `Seu ticket foi aberto em ${channel}`)])
+        { buttons: [row(btnConfirm, btnBack)], ephemeral: true }
+      )
     );
-  } else if (action === "confirm_close") {
+
+  } else if (action === "confirm_cancel_user") {
     const channel = interaction.channel as TextChannel;
     if (!channel.name.startsWith("ticket-")) {
       await interaction.reply(v2EphemeralReply([errorContainer("Este canal não é um ticket.")]));
@@ -123,20 +117,17 @@ async function handleTicketButton(interaction: ButtonInteraction, action: string
     await interaction.reply(
       v2Reply([
         infoContainer({
-          title: "🔒 Fechando ticket...",
-          description: "Este canal será excluído em 5 segundos.",
-          accentColor: COLORS.lock,
+          title: "❌ Ticket Cancelado",
+          description: "Este ticket foi cancelado pelo usuário. O canal será removido em **5 segundos**.",
+          accentColor: COLORS.danger,
         }),
       ])
     );
 
-    setTimeout(() => {
-      channel.delete("Ticket fechado").catch(() => null);
-    }, 5000);
-  } else if (action === "cancel_close") {
-    await interaction.reply(
-      v2EphemeralReply([successContainer("Cancelado", "O fechamento do ticket foi cancelado.")])
-    );
+    setTimeout(async () => {
+      await channel.delete("Ticket cancelado pelo usuário").catch(() => null);
+    }, 5_000);
+
   } else if (action === "claim") {
     const channel = interaction.channel as TextChannel;
     if (!channel.name.startsWith("ticket-")) {
@@ -152,45 +143,25 @@ async function handleTicketButton(interaction: ButtonInteraction, action: string
       return;
     }
 
+    await channel.permissionOverwrites.edit(interaction.user.id, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
+      AttachFiles: true,
+      ManageMessages: true,
+    });
+
     await interaction.reply(
       v2Reply([
         infoContainer({
           title: "🙋 Ticket Assumido",
-          description: `${interaction.user} está atendendo este ticket.`,
+          description: `${interaction.user} é o responsável por este atendimento.\n\nPor favor, aguarde enquanto nossa equipe analisa sua solicitação.`,
           avatarUrl: interaction.user.displayAvatarURL({ size: 256 }),
           accentColor: COLORS.success,
         }),
       ])
     );
-  } else if (action === "faq") {
-    await interaction.reply(
-      v2EphemeralReply([
-        infoContainer({
-          title: "❓ Perguntas Frequentes",
-          description: [
-            "**Como abrir um ticket?**",
-            "Clique no botão 🎫 Abrir Ticket.",
-            "",
-            "**Quanto tempo leva para resposta?**",
-            "Nossa equipe responde em até 24 horas.",
-            "",
-            "**Posso abrir mais de um ticket?**",
-            "Não, apenas um ticket por vez é permitido.",
-          ].join("\n"),
-          accentColor: COLORS.primary,
-        }),
-      ])
-    );
-  } else if (action === "status") {
-    const ticketCount = guild.channels.cache.filter((c) => c.name.startsWith("ticket-")).size;
-    await interaction.reply(
-      v2EphemeralReply([
-        infoContainer({
-          title: "📊 Status do Suporte",
-          description: `Tickets abertos: **${ticketCount}**\nNossa equipe está online e pronta para ajudar!`,
-          accentColor: COLORS.success,
-        }),
-      ])
-    );
+
+    logger.info({ moderator: interaction.user.tag, channel: channel.name }, "Ticket claimed");
   }
 }
