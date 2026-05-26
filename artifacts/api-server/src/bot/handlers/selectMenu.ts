@@ -87,6 +87,7 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
     name: ticketName,
     type: ChannelType.GuildText,
     parent: category.id,
+    topic: interaction.user.id,
     permissionOverwrites: [
       { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
       {
