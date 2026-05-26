@@ -40,7 +40,6 @@ export const unlockCommand: BotCommand = {
         infoContainer({
           title: "🔓 Canal Desbloqueado",
           description: `Este canal foi desbloqueado por ${interaction.user}.`,
-          accentColor: COLORS.unlock,
         }),
       ])
     );
