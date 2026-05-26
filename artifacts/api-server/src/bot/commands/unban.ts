@@ -42,7 +42,6 @@ export const unbanCommand: BotCommand = {
           moderatorTag: interaction.user.tag,
           reason: motivo,
           avatarUrl: ban.user.displayAvatarURL({ size: 256 }),
-          accentColor: COLORS.unban,
         }),
       ])
     );
