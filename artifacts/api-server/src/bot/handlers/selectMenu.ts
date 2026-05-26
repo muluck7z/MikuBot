@@ -37,8 +37,9 @@ export async function handleSelectMenu(interaction: StringSelectMenuInteraction)
       logger.warn({ customId: interaction.customId }, "Unknown select menu interaction");
     }
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     logger.error({ err, customId: interaction.customId }, "Select menu handler error");
-    const fallback = v2EphemeralReply([errorContainer("Erro ao processar esta seleção.")]);
+    const fallback = v2EphemeralReply([errorContainer(`Não foi possível abrir o ticket. Tente novamente.\n\n\`${msg}\``)]);
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp(fallback).catch(() => null);
     } else {
@@ -59,7 +60,10 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
   const safeName = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 18);
   const ticketName = `ticket-${safeName}`;
 
-  const existing = guild.channels.cache.find((c) => c.name === ticketName);
+  // Fetch all channels from the API (not cache) to get accurate state after restarts
+  const allChannels = await guild.channels.fetch();
+
+  const existing = allChannels.find((c) => c?.name === ticketName);
   if (existing) {
     await interaction.editReply(
       v2EphemeralReply([errorContainer(`Você já possui um ticket aberto: ${existing}\n\nFeche o ticket atual antes de abrir um novo.`)])
@@ -67,8 +71,8 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
     return;
   }
 
-  let category = guild.channels.cache.find(
-    (c) => c.name.toLowerCase() === "tickets" && c.type === ChannelType.GuildCategory
+  let category = allChannels.find(
+    (c) => c?.name.toLowerCase() === "tickets" && c.type === ChannelType.GuildCategory
   );
 
   if (!category) {
