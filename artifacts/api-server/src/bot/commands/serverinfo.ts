@@ -43,7 +43,6 @@ export const serverInfoCommand: BotCommand = {
           title: `🏰 ${guild.name}`,
           description: (guild.description ? `${guild.description}\n\n` : "") + lines,
           avatarUrl: guild.iconURL({ size: 256 }) ?? undefined,
-          accentColor: COLORS.primary,
         }),
       ])
     );
