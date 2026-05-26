@@ -68,7 +68,13 @@ export async function startBot() {
 
     const member = interaction.member as GuildMember | null;
 
-    if (!member || !hasStaffAccess(member)) {
+    // Ticket interactions are public — any member can open/interact with their ticket
+    const isTicketInteraction =
+      (interaction.isStringSelectMenu() || interaction.isButton() || interaction.isModalSubmit()) &&
+      "customId" in interaction &&
+      (interaction.customId.startsWith("ticket:") || interaction.customId.startsWith("ticket_"));
+
+    if (!isTicketInteraction && (!member || !hasStaffAccess(member))) {
       await replyAccessDenied(
         interaction as ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction
       );
