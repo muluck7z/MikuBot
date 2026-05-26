@@ -1,9 +1,11 @@
 import {
   type ButtonInteraction,
+  type Message,
+  type TextChannel,
   ButtonBuilder,
   ButtonStyle,
+  Collection,
   PermissionFlagsBits,
-  type TextChannel,
 } from "discord.js";
 import {
   infoContainer,
@@ -11,15 +13,126 @@ import {
   errorContainer,
   dangerButton,
   secondaryButton,
-  primaryButton,
   row,
   v2Reply,
   v2EphemeralReply,
 } from "../v2/index";
 import { logger } from "../../lib/logger";
+import { ticketStore } from "../ticketStore";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 const RATING_CHANNEL_ID = "1497778916859973783";
+const LOG_CHANNEL_ID    = "1497810672300593232";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function fetchAllMessages(channel: TextChannel): Promise<Message[]> {
+  const all: Message[] = [];
+  let before: string | undefined;
+
+  while (true) {
+    const batch: Collection<string, Message> = await channel.messages.fetch({
+      limit: 100,
+      ...(before ? { before } : {}),
+    });
+    if (batch.size === 0) break;
+    all.push(...batch.values());
+    before = batch.last()?.id;
+    if (batch.size < 100) break;
+  }
+
+  return all;
+}
+
+function starLabel(stars: number): string {
+  return "★".repeat(stars) + "☆".repeat(3 - stars);
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours   = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0)   return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+async function sendTicketLog(options: {
+  guild: ButtonInteraction["guild"] & object;
+  channel: TextChannel;
+  openerId: string | undefined;
+  claimerId: string | undefined;
+  closedById: string;
+  closedByTag: string;
+  reason: "moderador" | "usuario";
+}) {
+  const { guild, channel, openerId, claimerId, closedById, closedByTag, reason } = options;
+
+  const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID) as TextChannel | undefined;
+  if (!logChannel) {
+    logger.warn({ channelId: LOG_CHANNEL_ID }, "Log channel not found");
+    return;
+  }
+
+  const meta        = openerId ? ticketStore.get(channel.id) : undefined;
+  const typeLabel   = meta?.typeLabel ?? "Desconhecido";
+  const openedAt    = channel.createdAt;
+  const durationMs  = Date.now() - openedAt.getTime();
+  const openedTs    = Math.floor(openedAt.getTime() / 1000);
+
+  // Fetch and count messages
+  let openerMsgs  = 0;
+  let claimerMsgs = 0;
+  let totalMsgs   = 0;
+
+  try {
+    const messages = await fetchAllMessages(channel);
+    totalMsgs   = messages.filter((m) => !m.author.bot).length;
+    openerMsgs  = openerId  ? messages.filter((m) => m.author.id === openerId  && !m.author.bot).length : 0;
+    claimerMsgs = claimerId ? messages.filter((m) => m.author.id === claimerId && !m.author.bot).length : 0;
+  } catch (err) {
+    logger.error({ err }, "Failed to fetch messages for ticket log");
+  }
+
+  const rating = meta?.rating;
+  const ratingLine = rating !== undefined
+    ? `${starLabel(rating)} (${rating}/3)`
+    : "Não avaliado";
+
+  const lines: string[] = [
+    `**Canal:** \`${channel.name}\``,
+    `**Tipo:** ${typeLabel}`,
+    `**Aberto em:** <t:${openedTs}:F>`,
+    `**Duração:** ${formatDuration(durationMs)}`,
+    "",
+    `**Solicitante:** ${openerId  ? `<@${openerId}>`  : "Desconhecido"}`,
+    `**Responsável:** ${claimerId ? `<@${claimerId}>` : "Não assumido"}`,
+    `**Fechado por:** <@${closedById}>`,
+    "",
+    `**Msgs do solicitante:** ${openerMsgs}`,
+    `**Msgs do responsável:** ${claimerMsgs}`,
+    `**Total de mensagens:** ${totalMsgs}`,
+    "",
+    `**Avaliação:** ${ratingLine}`,
+  ];
+
+  const emoji = reason === "usuario" ? "🚪" : "🔒";
+  const title = reason === "usuario"
+    ? `${emoji} Ticket Cancelado pelo Usuário`
+    : `${emoji} Ticket Encerrado`;
+
+  await logChannel.send({
+    ...v2Reply([
+      infoContainer({ title, description: lines.join("\n") }),
+    ]),
+  });
+
+  ticketStore.delete(channel.id);
+}
+
+// ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function handleButton(interaction: ButtonInteraction) {
   const parts = interaction.customId.split(":");
@@ -108,7 +221,20 @@ async function handleTicketButton(
       });
     }
 
+    const closedById  = interaction.user.id;
+    const closedByTag = interaction.user.tag;
+
     setTimeout(async () => {
+      await sendTicketLog({
+        guild,
+        channel,
+        openerId:    openerId  || undefined,
+        claimerId:   claimerId || undefined,
+        closedById,
+        closedByTag,
+        reason: "moderador",
+      }).catch((err) => logger.error({ err }, "Failed to send ticket log"));
+
       await channel.delete("Ticket fechado por moderador").catch(() => null);
     }, 30_000);
 
@@ -156,7 +282,22 @@ async function handleTicketButton(
       ])
     );
 
+    const topic = channel.topic ?? "";
+    const [openerId, claimerId] = topic.split(":");
+    const closedById  = interaction.user.id;
+    const closedByTag = interaction.user.tag;
+
     setTimeout(async () => {
+      await sendTicketLog({
+        guild,
+        channel,
+        openerId:  openerId  || undefined,
+        claimerId: claimerId || undefined,
+        closedById,
+        closedByTag,
+        reason: "usuario",
+      }).catch((err) => logger.error({ err }, "Failed to send ticket log"));
+
       await channel.delete("Ticket cancelado pelo usuário").catch(() => null);
     }, 5_000);
 
@@ -183,7 +324,7 @@ async function handleTicketButton(
       ManageMessages: true,
     });
 
-    // Update topic to "openerId:claimerId" so we can use it for rating later
+    // Update topic to "openerId:claimerId" so we can use it for rating/log later
     const openerId = channel.topic ?? "";
     if (openerId && !openerId.includes(":")) {
       await channel.setTopic(`${openerId}:${interaction.user.id}`).catch(() => null);
@@ -219,8 +360,13 @@ async function handleTicketButton(
       return;
     }
 
-    const starLabel = "★".repeat(stars) + "☆".repeat(3 - stars);
     const channel = interaction.channel as TextChannel;
+
+    // Store rating in ticketStore so the log can pick it up
+    const meta = ticketStore.get(channel.id);
+    if (meta) {
+      ticketStore.set(channel.id, { ...meta, rating: stars });
+    }
 
     // Send rating to the rating channel
     const ratingChannel = guild.channels.cache.get(RATING_CHANNEL_ID) as TextChannel | undefined;
@@ -232,7 +378,7 @@ async function handleTicketButton(
             description: [
               `**Atendente:** <@${claimerId}>`,
               `**Avaliado por:** <@${openerId}>`,
-              `**Nota:** ${starLabel} (${stars}/3)`,
+              `**Nota:** ${starLabel(stars)} (${stars}/3)`,
             ].join("\n"),
           }),
         ]),
