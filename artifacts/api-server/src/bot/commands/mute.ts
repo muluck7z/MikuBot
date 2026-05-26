@@ -92,7 +92,6 @@ export const muteCommand: BotCommand = {
           moderatorTag: interaction.user.tag,
           reason: motivo,
           avatarUrl: user.displayAvatarURL({ size: 256 }),
-          accentColor: COLORS.mute,
           extra: `**Duração:** ${duracaoStr}\n**Até:** <t:${untilTs}:F>`,
         }),
       ])
