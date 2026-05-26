@@ -59,7 +59,6 @@ export const kickCommand: BotCommand = {
             moderatorTag: interaction.user.tag,
             reason: motivo,
             avatarUrl: user.displayAvatarURL({ size: 256 }),
-            accentColor: COLORS.kick,
           }),
         ])
       )
@@ -76,7 +75,6 @@ export const kickCommand: BotCommand = {
           moderatorTag: interaction.user.tag,
           reason: motivo,
           avatarUrl: user.displayAvatarURL({ size: 256 }),
-          accentColor: COLORS.kick,
         }),
       ])
     );
