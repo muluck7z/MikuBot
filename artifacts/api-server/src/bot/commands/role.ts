@@ -147,7 +147,6 @@ export const roleCommand: BotCommand = {
             title: `📋 Cargos de ${user.tag}`,
             description: `Total: **${count}** cargo(s)\n\n${roles}`,
             avatarUrl: user.displayAvatarURL({ size: 256 }),
-            accentColor: COLORS.primary,
           }),
         ])
       );
