@@ -13,9 +13,9 @@ import {
   row,
   v2Reply,
   v2EphemeralReply,
-  COLORS,
 } from "../v2/index";
 import { logger } from "../../lib/logger";
+import { ticketStore } from "../ticketStore";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 const SUPPORT_ROLE_ID = "1497801117940056125";
@@ -125,6 +125,14 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
         ],
       },
     ],
+  });
+
+  // Store ticket metadata for logs
+  ticketStore.set(channel.id, {
+    openerId: interaction.user.id,
+    openerTag: interaction.user.tag,
+    typeLabel,
+    openedAt: new Date(),
   });
 
   const btnCancel  = secondaryButton("ticket:cancel_user", "Cancelar");
