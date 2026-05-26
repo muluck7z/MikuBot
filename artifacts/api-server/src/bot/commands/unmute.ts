@@ -47,7 +47,6 @@ export const unmuteCommand: BotCommand = {
           moderatorTag: interaction.user.tag,
           reason: motivo,
           avatarUrl: user.displayAvatarURL({ size: 256 }),
-          accentColor: COLORS.unmute,
         }),
       ])
     );
