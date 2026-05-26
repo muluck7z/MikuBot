@@ -101,10 +101,13 @@ function rand(min: number, max: number): number {
 export const morteCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("morte")
-    .setDescription("Descubra quando e como você vai morrer 💀"),
+    .setDescription("Descubra quando e como alguém vai morrer 💀")
+    .addUserOption((opt) =>
+      opt.setName("usuario").setDescription("Quem vai morrer?").setRequired(true)
+    ),
 
   async execute(interaction: ChatInputCommandInteraction) {
-    const user = interaction.user;
+    const user = interaction.options.getUser("usuario", true);
 
     const dia   = rand(1, 28);
     const mes   = pick(MESES);
@@ -123,8 +126,6 @@ export const morteCommand: BotCommand = {
             `📅 **Data:** ${dia} de ${mes} de ${ano}`,
             `🎂 **Idade:** ${idade} anos`,
             `☠️ **Causa:** ${causa}.`,
-            "",
-            `-# Esta previsão foi gerada aleatoriamente. Provavelmente. 🔮`,
           ].join("\n"),
           avatarUrl: user.displayAvatarURL({ size: 256 }),
         }),
