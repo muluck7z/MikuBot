@@ -122,17 +122,16 @@ export const ticketCommand: BotCommand = {
         return;
       }
 
-      const btnConfirm = dangerButton("ticket:confirm_close", "🔒 Fechar Ticket");
-      const btnCancel = secondaryButton("ticket:cancel_close", "❌ Cancelar");
+      const btnConfirm = dangerButton("ticket:confirm_close", "Fechar Ticket");
+      const btnCancel = secondaryButton("ticket:cancel_close", "Cancelar");
 
       await interaction.reply(
         v2Reply(
           [
             infoContainer({
-              title: "🔒 Fechar Ticket",
+              title: "Fechar Ticket",
               description:
                 "Tem certeza que deseja fechar este ticket?\nO canal será excluído em **30 segundos** após a confirmação.",
-              accentColor: COLORS.kick,
             }),
           ],
           { buttons: [row(btnConfirm, btnCancel)] }
