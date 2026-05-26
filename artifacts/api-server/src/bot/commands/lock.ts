@@ -50,7 +50,6 @@ export const lockCommand: BotCommand = {
         infoContainer({
           title: "🔒 Canal Bloqueado",
           description: `Este canal foi bloqueado por ${interaction.user}.\n**Motivo:** ${motivo}\n\nUse \`/unlock\` para desbloquear.`,
-          accentColor: COLORS.lock,
         }),
       ])
     );
