@@ -48,7 +48,6 @@ export const userInfoCommand: BotCommand = {
           title: `👤 ${user.tag}`,
           description: lines,
           avatarUrl: user.displayAvatarURL({ size: 256 }),
-          accentColor: member.displayColor || COLORS.primary,
         }),
       ])
     );
