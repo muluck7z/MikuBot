@@ -74,7 +74,11 @@ export async function startBot() {
       "customId" in interaction &&
       (interaction.customId.startsWith("ticket:") || interaction.customId.startsWith("ticket_"));
 
-    if (!isTicketInteraction && (!member || !hasStaffAccess(member))) {
+    // Commands available to all members regardless of role
+    const isPublicCommand =
+      interaction.isChatInputCommand() && interaction.commandName === "morte";
+
+    if (!isPublicCommand && !isTicketInteraction && (!member || !hasStaffAccess(member))) {
       await replyAccessDenied(
         interaction as ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction
       );
