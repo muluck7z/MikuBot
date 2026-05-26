@@ -15,13 +15,9 @@ import { type BotCommand } from "../index";
 import {
   successContainer,
   errorContainer,
-  dangerButton,
-  secondaryButton,
-  row,
   v2Reply,
   v2EphemeralReply,
   IS_COMPONENTS_V2,
-  COLORS,
 } from "../v2/index";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
@@ -44,9 +40,6 @@ export const ticketCommand: BotCommand = {
         .addStringOption((opt) =>
           opt.setName("titulo").setDescription("Título do painel").setRequired(false)
         )
-    )
-    .addSubcommand((sub) =>
-      sub.setName("fechar").setDescription("Fecha o ticket atual")
     )
     .addSubcommand((sub) =>
       sub
@@ -115,28 +108,6 @@ export const ticketCommand: BotCommand = {
         components: [container],
         flags: IS_COMPONENTS_V2,
       } as never);
-    } else if (sub === "fechar") {
-      const channel = interaction.channel as TextChannel;
-      if (!channel.name.startsWith("ticket-")) {
-        await interaction.reply(v2EphemeralReply([errorContainer("Este canal não é um ticket.")]));
-        return;
-      }
-
-      const btnConfirm = dangerButton("ticket:confirm_close", "Fechar Ticket");
-      const btnCancel = secondaryButton("ticket:cancel_close", "Cancelar");
-
-      await interaction.reply(
-        v2Reply(
-          [
-            infoContainer({
-              title: "Fechar Ticket",
-              description:
-                "Tem certeza que deseja fechar este ticket?\nO canal será excluído em **30 segundos** após a confirmação.",
-            }),
-          ],
-          { buttons: [row(btnConfirm, btnCancel)] }
-        )
-      );
     } else if (sub === "add") {
       const channel = interaction.channel as TextChannel;
       if (!channel.name.startsWith("ticket-")) {
