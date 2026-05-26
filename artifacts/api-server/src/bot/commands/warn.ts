@@ -73,7 +73,6 @@ export const warnCommand: BotCommand = {
               moderatorTag: interaction.user.tag,
               reason: motivo,
               avatarUrl: user.displayAvatarURL({ size: 256 }),
-              accentColor: COLORS.warning,
               extra: `**Total de advertências:** ${list.length}`,
             }),
           ])
@@ -89,7 +88,6 @@ export const warnCommand: BotCommand = {
             moderatorTag: interaction.user.tag,
             reason: motivo,
             avatarUrl: user.displayAvatarURL({ size: 256 }),
-            accentColor: COLORS.warning,
             extra: `**Total de advertências:** ${list.length}`,
           }),
         ])
@@ -104,7 +102,6 @@ export const warnCommand: BotCommand = {
               title: `📋 Advertências de ${user.tag}`,
               description: "Nenhuma advertência registrada.",
               avatarUrl: user.displayAvatarURL({ size: 256 }),
-              accentColor: COLORS.primary,
             }),
           ])
         );
@@ -125,7 +122,6 @@ export const warnCommand: BotCommand = {
             title: `📋 Advertências de ${user.tag}`,
             description: `Total: **${list.length}** advertência(s)\n\n${warnLines}`,
             avatarUrl: user.displayAvatarURL({ size: 256 }),
-            accentColor: COLORS.warning,
           }),
         ])
       );
@@ -140,7 +136,6 @@ export const warnCommand: BotCommand = {
             moderatorTag: interaction.user.tag,
             reason: "Todas as advertências foram removidas.",
             avatarUrl: user.displayAvatarURL({ size: 256 }),
-            accentColor: COLORS.success,
           }),
         ])
       );
