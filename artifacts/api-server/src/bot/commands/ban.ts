@@ -86,7 +86,6 @@ export const banCommand: BotCommand = {
               moderatorTag: interaction.user.tag,
               reason: motivo,
               avatarUrl: user.displayAvatarURL({ size: 256 }),
-              accentColor: COLORS.ban,
             }),
           ])
         )
@@ -107,7 +106,6 @@ export const banCommand: BotCommand = {
           moderatorTag: interaction.user.tag,
           reason: motivo,
           avatarUrl: user.displayAvatarURL({ size: 256 }),
-          accentColor: COLORS.ban,
           extra: dias > 0 ? `**Mensagens deletadas:** ${dias} dia(s)` : undefined,
         }),
       ])
