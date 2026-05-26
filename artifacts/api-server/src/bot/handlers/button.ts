@@ -1,5 +1,7 @@
 import {
   type ButtonInteraction,
+  ButtonBuilder,
+  ButtonStyle,
   PermissionFlagsBits,
   type TextChannel,
 } from "discord.js";
@@ -83,9 +85,10 @@ async function handleTicketButton(
     const [openerId, claimerId] = topic.split(":");
 
     if (openerId && claimerId) {
-      const btn1 = secondaryButton(`ticket:rate:1:${claimerId}:${openerId}`, "★  1 Estrela");
-      const btn2 = secondaryButton(`ticket:rate:2:${claimerId}:${openerId}`, "★★  2 Estrelas");
-      const btn3 = primaryButton(`ticket:rate:3:${claimerId}:${openerId}`, "★★★  3 Estrelas");
+      const STAR = { name: "estrela", id: "1508926292513521837", animated: true };
+      const btn1 = new ButtonBuilder().setCustomId(`ticket:rate:1:${claimerId}:${openerId}`).setLabel("1").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
+      const btn2 = new ButtonBuilder().setCustomId(`ticket:rate:2:${claimerId}:${openerId}`).setLabel("2").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
+      const btn3 = new ButtonBuilder().setCustomId(`ticket:rate:3:${claimerId}:${openerId}`).setLabel("3").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
 
       await channel.send({
         content: `<@${openerId}>`,
@@ -229,7 +232,6 @@ async function handleTicketButton(
             description: [
               `**Atendente:** <@${claimerId}>`,
               `**Avaliado por:** <@${openerId}>`,
-              `**Ticket:** ${channel.name}`,
               `**Nota:** ${starLabel} (${stars}/3)`,
             ].join("\n"),
           }),
