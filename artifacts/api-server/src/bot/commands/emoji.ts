@@ -175,7 +175,6 @@ export const emojiCommand: BotCommand = {
               `**Emojis no servidor:** ${guild.emojis.cache.size}/${limit}`,
             ].join("\n"),
             avatarUrl: newEmoji.url,
-            accentColor: COLORS.success,
           }),
         ])
       );
@@ -209,7 +208,6 @@ export const emojiCommand: BotCommand = {
               `**Removido por:** ${interaction.user}`,
             ].join("\n"),
             avatarUrl: emojiUrl,
-            accentColor: COLORS.danger,
           }),
         ])
       );
@@ -254,7 +252,6 @@ export const emojiCommand: BotCommand = {
             title: `😀 Emojis de ${guild.name}`,
             description: lines,
             avatarUrl: guild.iconURL({ size: 256 }) ?? undefined,
-            accentColor: COLORS.primary,
           }),
         ])
       );
