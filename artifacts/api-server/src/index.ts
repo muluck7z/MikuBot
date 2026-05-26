@@ -26,5 +26,5 @@ app.listen(port, (err) => {
 });
 
 startBot().catch((err) => {
-  logger.error({ err }, "Failed to start Discord bot");
+  logger.error({ err }, "Failed to start bot");
 });
