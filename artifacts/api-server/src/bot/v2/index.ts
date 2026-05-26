@@ -83,7 +83,7 @@ export function modContainer(options: {
   accentColor?: number;
   extra?: string;
 }): ContainerBuilder {
-  const { action, targetTag, targetId, moderatorTag, reason, avatarUrl, accentColor = COLORS.mod, extra } = options;
+  const { action, targetTag, targetId, moderatorTag, reason, avatarUrl, accentColor, extra } = options;
 
   const lines = [
     `**Usuário:** ${targetTag} (\`${targetId}\`)`,
@@ -107,20 +107,20 @@ export function infoContainer(options: {
     title: options.title,
     body: options.description,
     avatarUrl: options.avatarUrl,
-    accentColor: options.accentColor ?? COLORS.primary,
+    accentColor: options.accentColor,
   });
 }
 
 export function successContainer(title: string, description: string): ContainerBuilder {
-  return buildContainer({ title: `${EMOJIS.positive} ${title}`, body: description, accentColor: COLORS.success });
+  return buildContainer({ title: `${EMOJIS.positive} ${title}`, body: description });
 }
 
 export function errorContainer(description: string): ContainerBuilder {
-  return buildContainer({ title: `${EMOJIS.negative} Erro`, body: description, accentColor: COLORS.danger });
+  return buildContainer({ title: `${EMOJIS.negative} Erro`, body: description });
 }
 
 export function warnContainer(title: string, description: string): ContainerBuilder {
-  return buildContainer({ title: `${EMOJIS.negative} ${title}`, body: description, accentColor: COLORS.warning });
+  return buildContainer({ title: `${EMOJIS.negative} ${title}`, body: description });
 }
 
 // ─── Reply helpers ─────────────────────────────────────────────────────────────
