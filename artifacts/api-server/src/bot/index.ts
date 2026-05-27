@@ -75,8 +75,9 @@ export async function startBot() {
       (interaction.customId.startsWith("ticket:") || interaction.customId.startsWith("ticket_"));
 
     // Commands available to all members regardless of role
+    const PUBLIC_COMMANDS = new Set(["morte", "futuro"]);
     const isPublicCommand =
-      interaction.isChatInputCommand() && interaction.commandName === "morte";
+      interaction.isChatInputCommand() && PUBLIC_COMMANDS.has(interaction.commandName);
 
     if (!isPublicCommand && !isTicketInteraction && (!member || !hasStaffAccess(member))) {
       await replyAccessDenied(
