@@ -16,6 +16,7 @@ import { serverInfoCommand } from "./commands/serverinfo";
 import { warnCommand } from "./commands/warn";
 import { emojiCommand } from "./commands/emoji";
 import { morteCommand } from "./commands/morte";
+import { futuroCommand } from "./commands/futuro";
 import { deployCommands } from "./deploy";
 import { logger } from "../lib/logger";
 
@@ -36,6 +37,7 @@ const allCommands: BotCommand[] = [
   warnCommand,
   emojiCommand,
   morteCommand,
+  futuroCommand,
 ];
 
 export async function loadCommands(commands: Collection<string, BotCommand>) {
