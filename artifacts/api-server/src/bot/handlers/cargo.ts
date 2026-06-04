@@ -16,29 +16,6 @@ function reply(message: Message, text: string) {
   return message.channel.send(text).catch(() => null);
 }
 
-/** Converte input de cor (hex, nome PT ou EN) para inteiro */
-function parseColor(input: string): number | null {
-  const s = input.trim().toLowerCase().replace(/^#/, "");
-
-  const named: Record<string, number> = {
-    vermelho: 0xed4245, red: 0xed4245,
-    azul: 0x5865f2,    blue: 0x5865f2,
-    verde: 0x57f287,   green: 0x57f287,
-    amarelo: 0xfee75c, yellow: 0xfee75c,
-    roxo: 0x9b59b6,    purple: 0x9b59b6,
-    laranja: 0xe67e22, orange: 0xe67e22,
-    rosa: 0xff69b4,    pink: 0xff69b4,
-    branco: 0xffffff,  white: 0xffffff,
-    preto: 0x000000,   black: 0x000000,
-    cinza: 0x95a5a6,   gray: 0x95a5a6, grey: 0x95a5a6,
-  };
-  if (named[s] !== undefined) return named[s]!;
-
-  const n = parseInt(s, 16);
-  if (!isNaN(n) && n >= 0 && n <= 0xffffff) return n;
-  return null;
-}
-
 /**
  * Extrai emoji + role de uma linha no formato "{emoji} {menção de cargo}"
  * Suporta menção (<@&id>) ou busca por nome.
@@ -109,7 +86,6 @@ export async function handleCargoCommand(message: Message): Promise<void> {
     setupChannelId: message.channel.id,
     titulo: "",
     descricao: "",
-    cor: 0x5865f2,
     cargos: [],
   });
 
@@ -149,27 +125,11 @@ export async function handleCargoSession(
         return;
       }
       session.descricao = content;
-      session.step = "cor";
-      await reply(
-        message,
-        `✅ Descrição salva!\n\nQual a **cor** do embed?\nExemplos: \`#ff0000\`, \`vermelho\`, \`azul\`, \`verde\`, \`roxo\`, \`laranja\`...`
-      );
-      break;
-    }
-
-    // ── Cor ───────────────────────────────────────────────────────────────────
-    case "cor": {
-      const cor = parseColor(content);
-      if (cor === null) {
-        await reply(message, "❌ Cor inválida. Use hex (`#ff0000`) ou um nome como `vermelho`, `azul`, `verde`. Tente novamente:");
-        return;
-      }
-      session.cor = cor;
       session.step = "cargos";
       await reply(
         message,
         [
-          "✅ Cor definida!",
+          "✅ Descrição salva!",
           "",
           "**Agora configure os cargos.**",
           "Envie cada cargo em uma mensagem separada no formato:",
@@ -251,10 +211,11 @@ export async function handleCargoSession(
         .map((c) => `${c.emoji} → <@&${c.roleId}>`)
         .join("\n");
 
+      const separador = "─────────────────────────────────";
+
       const embed = new EmbedBuilder()
         .setTitle(session.titulo)
-        .setDescription(`${session.descricao}\n\n${listaRoles}`)
-        .setColor(session.cor);
+        .setDescription(`${separador}\n${session.descricao}\n\n${listaRoles}`);
 
       let postedMessage;
       try {
