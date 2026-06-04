@@ -3,7 +3,11 @@ import {
   type TextChannel,
   type Guild,
   type Role,
-  EmbedBuilder,
+  ContainerBuilder,
+  TextDisplayBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
+  MessageFlags,
 } from "discord.js";
 import { logger } from "../../lib/logger";
 import { cargoSessions, type CargoSession, type CargoEntry } from "../cargoSessionStore";
@@ -206,20 +210,28 @@ export async function handleCargoSession(
         return;
       }
 
-      // ── Monta embed ───────────────────────────────────────────────────────
+      // ── Monta mensagem Components V2 ─────────────────────────────────────
       const listaRoles = session.cargos
         .map((c) => `${c.emoji} → <@&${c.roleId}>`)
         .join("\n");
 
-      const separador = "─────────────────────────────────";
-
-      const embed = new EmbedBuilder()
-        .setTitle(session.titulo)
-        .setDescription(`${separador}\n${session.descricao}\n\n${listaRoles}`);
+      const container = new ContainerBuilder()
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(`# ${session.titulo}`)
+        )
+        .addSeparatorComponents(
+          new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        )
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(`${session.descricao}\n\n${listaRoles}`)
+        );
 
       let postedMessage;
       try {
-        postedMessage = await targetChannel.send({ embeds: [embed] });
+        postedMessage = await targetChannel.send({
+          components: [container],
+          flags: MessageFlags.IsComponentsV2,
+        });
       } catch {
         await reply(message, "❌ Não consegui enviar a mensagem nesse canal. Verifique minhas permissões e tente novamente:");
         return;
