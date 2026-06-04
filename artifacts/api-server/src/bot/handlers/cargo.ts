@@ -8,6 +8,7 @@ import {
   SeparatorBuilder,
   SeparatorSpacingSize,
   MessageFlags,
+  Routes,
 } from "discord.js";
 import { logger } from "../../lib/logger";
 import { cargoSessions, type CargoSession, type CargoEntry } from "../cargoSessionStore";
@@ -228,10 +229,19 @@ export async function handleCargoSession(
 
       let postedMessage;
       try {
-        postedMessage = await targetChannel.send({
-          components: [container],
-          flags: MessageFlags.IsComponentsV2,
-        });
+        // Envia direto via REST para garantir que a flag IsComponentsV2 chegue
+        // ao Discord — channel.send() filtra flags não reconhecidas pelo discord.js
+        const raw = await targetChannel.client.rest.post(
+          Routes.channelMessages(targetChannel.id),
+          {
+            body: {
+              components: [container.toJSON()],
+              flags: MessageFlags.IsComponentsV2,
+            },
+          }
+        ) as { id: string };
+
+        postedMessage = await targetChannel.messages.fetch(raw.id);
       } catch {
         await reply(message, "❌ Não consegui enviar a mensagem nesse canal. Verifique minhas permissões e tente novamente:");
         return;
