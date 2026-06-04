@@ -22,6 +22,8 @@ import { handleSelectMenu } from "./handlers/selectMenu";
 import { hasStaffAccess } from "./guard";
 import { errorContainer } from "./v2/index";
 import { reactionRoleStore, makeKey, emojiKeyFromReaction } from "./reactionRoleStore";
+import { cargoSessions } from "./cargoSessionStore";
+import { handleCargoCommand, handleCargoSession } from "./handlers/cargo";
 
 export interface BotCommand {
   data: { name: string; toJSON(): object };
@@ -115,6 +117,30 @@ export async function startBot() {
       await handleModal(interaction as ModalSubmitInteraction);
     } else if (interaction.isStringSelectMenu()) {
       await handleSelectMenu(interaction as StringSelectMenuInteraction);
+    }
+  });
+
+  // ── Comando de prefixo !cargo ─────────────────────────────────────────────────
+
+  client.on("messageCreate", (message) => {
+    if (message.author.bot || !message.guild) return;
+
+    const content = message.content.trim();
+
+    // Inicia novo fluxo
+    if (content === "!cargo") {
+      handleCargoCommand(message).catch((err) =>
+        logger.error({ err }, "!cargo error")
+      );
+      return;
+    }
+
+    // Continua sessão existente (inclui !pronto e respostas passo a passo)
+    const session = cargoSessions.get(message.author.id);
+    if (session && session.guildId === message.guild.id) {
+      handleCargoSession(message, session).catch((err) =>
+        logger.error({ err }, "cargo session error")
+      );
     }
   });
 
