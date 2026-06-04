@@ -18,6 +18,7 @@ import { emojiCommand } from "./commands/emoji";
 import { morteCommand } from "./commands/morte";
 import { futuroCommand } from "./commands/futuro";
 import { reactionRoleCommand } from "./commands/reactionrole";
+import { sorteioCommand } from "./commands/sorteio";
 import { deployCommands } from "./deploy";
 import { logger } from "../lib/logger";
 
@@ -40,6 +41,7 @@ const allCommands: BotCommand[] = [
   morteCommand,
   futuroCommand,
   reactionRoleCommand,
+  sorteioCommand,
 ];
 
 export async function loadCommands(commands: Collection<string, BotCommand>) {

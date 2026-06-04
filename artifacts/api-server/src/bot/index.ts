@@ -82,12 +82,17 @@ export async function startBot() {
       "customId" in interaction &&
       (interaction.customId.startsWith("ticket:") || interaction.customId.startsWith("ticket_"));
 
+    // Botão de participar no sorteio é público — qualquer membro pode clicar
+    const isSorteioEntrar =
+      interaction.isButton() &&
+      interaction.customId.startsWith("sorteio:entrar:");
+
     // Commands available to all members regardless of role
     const PUBLIC_COMMANDS = new Set(["morte", "futuro"]);
     const isPublicCommand =
       interaction.isChatInputCommand() && PUBLIC_COMMANDS.has(interaction.commandName);
 
-    if (!isPublicCommand && !isTicketInteraction && (!member || !hasStaffAccess(member))) {
+    if (!isPublicCommand && !isTicketInteraction && !isSorteioEntrar && (!member || !hasStaffAccess(member))) {
       await replyAccessDenied(
         interaction as ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction
       );

@@ -6,6 +6,8 @@ import {
   ButtonStyle,
   Collection,
   PermissionFlagsBits,
+  MessageFlags,
+  Routes,
 } from "discord.js";
 import {
   infoContainer,
@@ -19,6 +21,8 @@ import {
 } from "../v2/index";
 import { logger } from "../../lib/logger";
 import { ticketStore } from "../ticketStore";
+import { sorteioStore, sorteioByChannel } from "../sorteioStore";
+import { buildSorteioComponents } from "../commands/sorteio";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 const RATING_CHANNEL_ID = "1497778916859973783";
@@ -141,6 +145,8 @@ export async function handleButton(interaction: ButtonInteraction) {
   try {
     if (ns === "ticket") {
       await handleTicketButton(interaction, action!, parts);
+    } else if (ns === "sorteio") {
+      await handleSorteioButton(interaction, action!, parts);
     } else {
       logger.warn({ customId: interaction.customId }, "Unknown button interaction");
     }
@@ -396,5 +402,63 @@ async function handleTicketButton(
     } as never);
 
     logger.info({ openerId, claimerId, stars, channel: channel.name }, "Ticket rated");
+  }
+}
+
+// ─── Sorteio ──────────────────────────────────────────────────────────────────
+
+async function handleSorteioButton(
+  interaction: ButtonInteraction,
+  action: string,
+  parts: string[]
+) {
+  if (action === "entrar") {
+    // parts: ["sorteio", "entrar", channelId]
+    const channelId = parts[2];
+    if (!channelId) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Dados do sorteio inválidos.")]));
+      return;
+    }
+
+    const messageId = sorteioByChannel.get(channelId);
+    if (!messageId) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Este sorteio não está mais ativo.")]));
+      return;
+    }
+
+    const entry = sorteioStore.get(messageId);
+    if (!entry || entry.encerrado) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Este sorteio não está mais ativo.")]));
+      return;
+    }
+
+    if (entry.participantes.has(interaction.user.id)) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Você já está participando deste sorteio! Boa sorte! 🍀")]));
+      return;
+    }
+
+    entry.participantes.add(interaction.user.id);
+
+    // Atualizar contagem de participantes na mensagem via REST
+    const { container, actionRow } = buildSorteioComponents(entry);
+    await interaction.client.rest
+      .patch(Routes.channelMessage(entry.channelId, entry.messageId), {
+        body: {
+          components: [container.toJSON(), actionRow.toJSON()],
+          flags: MessageFlags.IsComponentsV2,
+        },
+      })
+      .catch((err) => logger.error({ err }, "Falha ao atualizar mensagem do sorteio"));
+
+    await interaction.reply(
+      v2EphemeralReply([
+        successContainer(
+          "Você entrou no sorteio!",
+          `Boa sorte! 🍀\n**Prêmio:** ${entry.premio}\n**Participantes:** ${entry.participantes.size}`
+        ),
+      ])
+    );
+
+    logger.info({ userId: interaction.user.id, premio: entry.premio }, "Usuário entrou no sorteio");
   }
 }
