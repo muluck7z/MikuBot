@@ -8,6 +8,10 @@ import {
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
   type GuildMember,
+  type MessageReaction,
+  type PartialMessageReaction,
+  type User,
+  type PartialUser,
   MessageFlags,
 } from "discord.js";
 import { logger } from "../lib/logger";
@@ -17,6 +21,7 @@ import { handleModal } from "./handlers/modal";
 import { handleSelectMenu } from "./handlers/selectMenu";
 import { hasStaffAccess } from "./guard";
 import { errorContainer } from "./v2/index";
+import { reactionRoleStore, makeKey, emojiKeyFromReaction } from "./reactionRoleStore";
 
 export interface BotCommand {
   data: { name: string; toJSON(): object };
@@ -30,8 +35,9 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildMessageReactions,
   ],
-  partials: [Partials.Message, Partials.Channel, Partials.GuildMember],
+  partials: [Partials.Message, Partials.Channel, Partials.GuildMember, Partials.Reaction],
 });
 
 export const commands = new Collection<string, BotCommand>();
@@ -110,6 +116,58 @@ export async function startBot() {
     } else if (interaction.isStringSelectMenu()) {
       await handleSelectMenu(interaction as StringSelectMenuInteraction);
     }
+  });
+
+  // ── Cargos por reação ────────────────────────────────────────────────────────
+
+  async function handleReaction(
+    reaction: MessageReaction | PartialMessageReaction,
+    user: User | PartialUser,
+    action: "add" | "remove"
+  ) {
+    if (user.bot) return;
+
+    // Resolve partial (mensagens antigas podem vir incompletas)
+    if (reaction.partial) {
+      try { await reaction.fetch(); } catch { return; }
+    }
+
+    const message = reaction.message;
+    const guild = message.guild;
+    if (!guild) return;
+
+    const emojiKey = emojiKeyFromReaction(reaction.emoji);
+    const key = makeKey(message.id, emojiKey);
+    const entry = reactionRoleStore.get(key);
+    if (!entry || entry.guildId !== guild.id) return;
+
+    try {
+      const member = await guild.members.fetch(user.id);
+      const role = guild.roles.cache.get(entry.roleId);
+      if (!role) return;
+
+      if (action === "add") {
+        await member.roles.add(role, "Cargo por reação");
+        logger.info({ userId: user.id, roleId: role.id, emoji: emojiKey }, "Cargo adicionado por reação");
+      } else {
+        await member.roles.remove(role, "Reação removida");
+        logger.info({ userId: user.id, roleId: role.id, emoji: emojiKey }, "Cargo removido por reação");
+      }
+    } catch (err) {
+      logger.error({ err }, "Erro ao gerenciar cargo por reação");
+    }
+  }
+
+  client.on("messageReactionAdd", (reaction, user) => {
+    handleReaction(reaction, user, "add").catch((err) =>
+      logger.error({ err }, "messageReactionAdd error")
+    );
+  });
+
+  client.on("messageReactionRemove", (reaction, user) => {
+    handleReaction(reaction, user, "remove").catch((err) =>
+      logger.error({ err }, "messageReactionRemove error")
+    );
   });
 
   await client.login(token);
