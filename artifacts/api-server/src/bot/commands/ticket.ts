@@ -8,6 +8,8 @@ import {
   TextDisplayBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
+  SectionBuilder,
+  ThumbnailBuilder,
   type ChatInputCommandInteraction,
   type TextChannel,
 } from "discord.js";
@@ -114,8 +116,20 @@ export const ticketCommand: BotCommand = {
         "Clique nos botões abaixo para continuar:",
       ].join("\n");
 
-      const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${titulo}`))
+      const container = new ContainerBuilder();
+
+      // Título: com thumbnail ou sem
+      if (thumbnailUrl) {
+        container.addSectionComponents(
+          new SectionBuilder()
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${titulo}`))
+            .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbnailUrl))
+        );
+      } else {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${titulo}`));
+      }
+
+      container
         .addSeparatorComponents(
           new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
         )
