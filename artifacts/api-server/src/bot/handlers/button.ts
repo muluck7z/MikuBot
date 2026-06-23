@@ -328,10 +328,15 @@ async function handleTicketButton(
       return;
     }
 
+    const TICKET_STAFF_ROLES = ["1497801117940056125", "1457907642633818204"];
     const member = await guild.members.fetch(interaction.user.id).catch(() => null);
-    if (!member?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    const canClaim = member && (
+      member.permissions.has(PermissionFlagsBits.ManageChannels) ||
+      TICKET_STAFF_ROLES.some((id) => member.roles.cache.has(id))
+    );
+    if (!canClaim) {
       await interaction.reply(
-        v2EphemeralReply([errorContainer("Apenas moderadores podem assumir tickets.")])
+        v2EphemeralReply([errorContainer("Você não tem permissão para assumir tickets.")])
       );
       return;
     }
