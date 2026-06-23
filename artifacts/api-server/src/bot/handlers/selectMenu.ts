@@ -15,7 +15,7 @@ import {
   v2EphemeralReply,
 } from "../v2/index";
 import { logger } from "../../lib/logger";
-import { ticketStore } from "../ticketStore";
+import { ticketStore, ticketPanelConfig } from "../ticketStore";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 const SUPPORT_ROLE_ID = "1497801117940056125";
@@ -127,12 +127,16 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
     ],
   });
 
+  // Thumbnail configurada no painel (se houver)
+  const thumbnailUrl = ticketPanelConfig.get(guild.id)?.thumbnailUrl;
+
   // Store ticket metadata for logs
   ticketStore.set(channel.id, {
     openerId: interaction.user.id,
     openerTag: interaction.user.tag,
     typeLabel,
     openedAt: new Date(),
+    thumbnailUrl,
   });
 
   const btnCancel  = secondaryButton("ticket:cancel_user", "Cancelar");
@@ -157,7 +161,8 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
             "",
             "**Atenção:** caso nenhuma mensagem seja enviada, o ticket poderá ser encerrado automaticamente por inatividade.",
           ].join("\n"),
-          avatarUrl: interaction.user.displayAvatarURL({ size: 256 }),
+          // Usa thumbnail do painel se configurada, senão avatar do usuário
+          avatarUrl: thumbnailUrl ?? interaction.user.displayAvatarURL({ size: 256 }),
         }),
       ],
       { buttons: [row(btnCancel, btnClose, btnClaim)] }

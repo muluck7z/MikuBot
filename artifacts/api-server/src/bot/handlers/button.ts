@@ -82,6 +82,7 @@ async function sendTicketLog(options: {
 
   const meta        = openerId ? ticketStore.get(channel.id) : undefined;
   const typeLabel   = meta?.typeLabel ?? "Desconhecido";
+  const thumbnailUrl = meta?.thumbnailUrl;
   const openedAt    = channel.createdAt;
   const durationMs  = Date.now() - openedAt.getTime();
   const openedTs    = Math.floor(openedAt.getTime() / 1000);
@@ -129,7 +130,7 @@ async function sendTicketLog(options: {
 
   await logChannel.send({
     ...v2Reply([
-      infoContainer({ title, description: lines.join("\n") }),
+      infoContainer({ title, description: lines.join("\n"), avatarUrl: thumbnailUrl }),
     ]),
   });
 
@@ -214,12 +215,14 @@ async function handleTicketButton(
         allowedMentions: { users: [openerId] },
       });
 
+      const thumbTicket = ticketStore.get(channel.id)?.thumbnailUrl;
       await channel.send({
         ...v2Reply(
           [
             infoContainer({
               title: "Avaliação de Atendimento",
               description: `Qual nota você daria para o atendimento de <@${claimerId}>?`,
+              avatarUrl: thumbTicket,
             }),
           ],
           { buttons: [row(btn1, btn2, btn3)] }
@@ -377,6 +380,7 @@ async function handleTicketButton(
     // Send rating to the rating channel
     const ratingChannel = guild.channels.cache.get(RATING_CHANNEL_ID) as TextChannel | undefined;
     if (ratingChannel) {
+      const thumbRating = ticketStore.get(channel.id)?.thumbnailUrl;
       await ratingChannel.send({
         ...v2Reply([
           infoContainer({
@@ -386,6 +390,7 @@ async function handleTicketButton(
               `**Avaliado por:** <@${openerId}>`,
               `**Nota:** ${starLabel(stars)} (${stars}/3)`,
             ].join("\n"),
+            avatarUrl: thumbRating,
           }),
         ]),
       });

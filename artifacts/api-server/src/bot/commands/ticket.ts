@@ -19,6 +19,7 @@ import {
   v2EphemeralReply,
   IS_COMPONENTS_V2,
 } from "../v2/index";
+import { ticketPanelConfig } from "../ticketStore";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 
@@ -39,6 +40,12 @@ export const ticketCommand: BotCommand = {
         .setDescription("Envia o painel de abertura de tickets no canal atual")
         .addStringOption((opt) =>
           opt.setName("titulo").setDescription("Título do painel").setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName("thumbnail")
+            .setDescription("URL da imagem que aparecerá no canto das embeds de ticket, avaliação e log")
+            .setRequired(false)
         )
     )
     .addSubcommand((sub) =>
@@ -67,6 +74,23 @@ export const ticketCommand: BotCommand = {
     if (sub === "painel") {
       const titulo =
         interaction.options.getString("titulo") ?? `${TICKET_EMOJI} Central de Atendimento | Secret Forn`;
+      const thumbnailRaw = interaction.options.getString("thumbnail");
+
+      // Validar URL e salvar configuração do painel para este servidor
+      let thumbnailUrl: string | undefined;
+      if (thumbnailRaw) {
+        try {
+          new URL(thumbnailRaw);
+          thumbnailUrl = thumbnailRaw;
+        } catch {
+          await interaction.reply(
+            v2EphemeralReply([errorContainer("A URL da thumbnail é inválida. Use uma URL completa (ex: https://...)")])
+          );
+          return;
+        }
+      }
+
+      ticketPanelConfig.set(guild.id, { thumbnailUrl });
 
       const selectMenu = new StringSelectMenuBuilder()
         .setCustomId("ticket:type")
