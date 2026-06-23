@@ -156,8 +156,8 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
 
   // Mention enviada separadamente — conteúdo de texto não pode ser misturado com IS_COMPONENTS_V2
   await (channel as TextChannel).send({
-    content: `${interaction.user} | <@&${SUPPORT_ROLE_ID}> <@&${EXTRA_ROLE_ID}>`,
-    allowedMentions: { users: [interaction.user.id], roles: [SUPPORT_ROLE_ID, EXTRA_ROLE_ID] },
+    content: `${interaction.user} | <@&${SUPPORT_ROLE_ID}>`,
+    allowedMentions: { users: [interaction.user.id], roles: [SUPPORT_ROLE_ID] },
   });
 
   await (channel as TextChannel).send({

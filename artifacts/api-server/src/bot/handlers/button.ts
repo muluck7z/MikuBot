@@ -25,8 +25,8 @@ import { sorteioStore, sorteioByChannel } from "../sorteioStore";
 import { buildSorteioComponents } from "../commands/sorteio";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
-const RATING_CHANNEL_ID = "1512670968634544260";
-const LOG_CHANNEL_ID    = "1512670982308102145";
+const RATING_CHANNEL_ID = "1512670969653887137";
+const LOG_CHANNEL_ID    = "1512670984572764303";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
