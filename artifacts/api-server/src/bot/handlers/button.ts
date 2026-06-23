@@ -25,8 +25,8 @@ import { sorteioStore, sorteioByChannel } from "../sorteioStore";
 import { buildSorteioComponents } from "../commands/sorteio";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
-const RATING_CHANNEL_ID = "1497778916859973783";
-const LOG_CHANNEL_ID    = "1497810672300593232";
+const RATING_CHANNEL_ID = "1512670968634544260";
+const LOG_CHANNEL_ID    = "1512670982308102145";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,7 +49,8 @@ async function fetchAllMessages(channel: TextChannel): Promise<Message[]> {
 }
 
 function starLabel(stars: number): string {
-  return "★".repeat(stars) + "☆".repeat(3 - stars);
+  const ESTRELA = "<a:estrela:1508926292513521837>";
+  return ESTRELA.repeat(stars);
 }
 
 function formatDuration(ms: number): string {
@@ -82,8 +83,18 @@ async function sendTicketLog(options: {
 
   const meta        = openerId ? ticketStore.get(channel.id) : undefined;
   const typeLabel   = meta?.typeLabel ?? "Desconhecido";
-  const thumbnailUrl = meta?.thumbnailUrl;
   const openedAt    = channel.createdAt;
+
+  // Thumbnail do log = avatar do responsável (claimer)
+  let claimerAvatarUrl: string | undefined;
+  if (claimerId) {
+    try {
+      const claimerMember = await guild.members.fetch(claimerId);
+      claimerAvatarUrl = claimerMember.user.displayAvatarURL({ size: 256 });
+    } catch {
+      // sem avatar disponível
+    }
+  }
   const durationMs  = Date.now() - openedAt.getTime();
   const openedTs    = Math.floor(openedAt.getTime() / 1000);
 
@@ -130,7 +141,7 @@ async function sendTicketLog(options: {
 
   await logChannel.send({
     ...v2Reply([
-      infoContainer({ title, description: lines.join("\n"), avatarUrl: thumbnailUrl }),
+      infoContainer({ title, description: lines.join("\n"), avatarUrl: claimerAvatarUrl }),
     ]),
   });
 
@@ -380,7 +391,8 @@ async function handleTicketButton(
     // Send rating to the rating channel
     const ratingChannel = guild.channels.cache.get(RATING_CHANNEL_ID) as TextChannel | undefined;
     if (ratingChannel) {
-      const thumbRating = ticketStore.get(channel.id)?.thumbnailUrl;
+      // Thumbnail = avatar de quem avaliou (opener)
+      const openerAvatarUrl = interaction.user.displayAvatarURL({ size: 256 });
       await ratingChannel.send({
         ...v2Reply([
           infoContainer({
@@ -390,7 +402,7 @@ async function handleTicketButton(
               `**Avaliado por:** <@${openerId}>`,
               `**Nota:** ${starLabel(stars)} (${stars}/3)`,
             ].join("\n"),
-            avatarUrl: thumbRating,
+            avatarUrl: openerAvatarUrl,
           }),
         ]),
       });
