@@ -20,7 +20,7 @@ import { futuroCommand } from "./commands/futuro";
 import { reactionRoleCommand } from "./commands/reactionrole";
 import { sorteioCommand } from "./commands/sorteio";
 import { restorecordSetupCommand } from "./commands/restorecord_setup";
-import { deployCommands, fetchRegisteredCommandNames } from "./deploy";
+import { deployCommandsMerged, fetchRegisteredCommands } from "./deploy";
 import { logger } from "../lib/logger";
 
 const allCommands: BotCommand[] = [
@@ -46,41 +46,43 @@ const allCommands: BotCommand[] = [
   restorecordSetupCommand,
 ];
 
-/** Nomes dos comandos que o MikuBot deve sempre manter registrados. */
-const expectedNames = new Set(allCommands.map((c) => c.data.name));
+/** Nomes dos comandos que pertencem ao MikuBot. */
+const ourNames = new Set(allCommands.map((c) => c.data.name));
+const ourCommandsJson = () => allCommands.map((c) => c.data.toJSON());
 
 let watcherInterval: NodeJS.Timeout | null = null;
 
 /**
- * Verifica se todos os comandos do MikuBot ainda estão registrados no Discord.
- * Se o RestoreCord ou outra fonte tiver sobrescrito os comandos, re-deploya imediatamente.
+ * Vigia de comandos: verifica se os comandos do MikuBot ainda estão todos registrados.
+ * Se o RestoreCord (ou outra fonte) tiver sobrescrito, re-deploya imediatamente
+ * preservando os comandos externos.
  */
 async function watchCommands() {
-  const registered = await fetchRegisteredCommandNames();
+  const registered = await fetchRegisteredCommands();
 
   if (registered === null) {
     // Não conseguiu buscar — tenta de novo no próximo ciclo
     return;
   }
 
-  const registeredSet = new Set(registered);
-  const missing = [...expectedNames].filter((name) => !registeredSet.has(name));
+  const registeredNames = new Set(registered.map((c) => c.name));
+  const missing = [...ourNames].filter((name) => !registeredNames.has(name));
 
   if (missing.length > 0) {
     logger.warn(
       { missing, registeredCount: registered.length },
-      "Comandos do MikuBot estão faltando — o RestoreCord pode ter sobrescrito. Re-deploying agora..."
+      "Comandos do MikuBot estão faltando — re-deploying agora (preservando externos)..."
     );
     try {
-      await deployCommands(allCommands.map((c) => c.data.toJSON()));
-      logger.info("Re-deploy emergencial concluído com sucesso.");
+      await deployCommandsMerged(ourCommandsJson(), ourNames);
     } catch (err) {
       logger.error({ err }, "Falha no re-deploy emergencial");
     }
   } else {
+    const external = registered.filter((c) => !ourNames.has(c.name));
     logger.debug(
-      { total: registered.length, ours: expectedNames.size },
-      "Comandos OK — nenhuma ação necessária"
+      { total: registered.length, ours: ourNames.size, external: external.map((c) => c.name) },
+      "Vigia OK — todos os comandos presentes"
     );
   }
 }
@@ -91,25 +93,20 @@ export async function loadCommands(commands: Collection<string, BotCommand>) {
   }
   logger.info({ count: allCommands.length }, "Commands loaded");
 
-  // Deploy inicial ao iniciar
+  // Deploy inicial ao iniciar — já preserva qualquer comando externo presente
   try {
-    await deployCommands(allCommands.map((c) => c.data.toJSON()));
+    await deployCommandsMerged(ourCommandsJson(), ourNames);
   } catch (err) {
-    logger.error({ err }, "Failed to deploy commands on startup");
+    logger.error({ err }, "Falha no deploy inicial");
   }
 
-  // Vigia de comandos: verifica a cada 2 minutos se os comandos ainda estão registrados.
-  // Se o RestoreCord sobrescrever, detectamos em até 2 minutos e re-registramos imediatamente.
+  // Vigia: verifica a cada 2 minutos se os nossos comandos ainda estão lá
   if (!watcherInterval) {
-    const CHECK_INTERVAL_MS = 2 * 60 * 1000; // 2 minutos
-    logger.info(
-      { intervalMinutes: 2 },
-      "Iniciando vigia de comandos — verificação a cada 2 minutos"
-    );
+    logger.info("Iniciando vigia de comandos — verificação a cada 2 minutos");
     watcherInterval = setInterval(() => {
       watchCommands().catch((err) =>
         logger.error({ err }, "Erro inesperado no vigia de comandos")
       );
-    }, CHECK_INTERVAL_MS);
+    }, 2 * 60 * 1000);
   }
 }
