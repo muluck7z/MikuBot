@@ -20,7 +20,7 @@ import { futuroCommand } from "./commands/futuro";
 import { reactionRoleCommand } from "./commands/reactionrole";
 import { sorteioCommand } from "./commands/sorteio";
 import { restorecordSetupCommand } from "./commands/restorecord_setup";
-import { deployCommands } from "./deploy";
+import { deployCommands, fetchRegisteredCommandNames } from "./deploy";
 import { logger } from "../lib/logger";
 
 const allCommands: BotCommand[] = [
@@ -46,7 +46,44 @@ const allCommands: BotCommand[] = [
   restorecordSetupCommand,
 ];
 
-let deployInterval: NodeJS.Timeout | null = null;
+/** Nomes dos comandos que o MikuBot deve sempre manter registrados. */
+const expectedNames = new Set(allCommands.map((c) => c.data.name));
+
+let watcherInterval: NodeJS.Timeout | null = null;
+
+/**
+ * Verifica se todos os comandos do MikuBot ainda estão registrados no Discord.
+ * Se o RestoreCord ou outra fonte tiver sobrescrito os comandos, re-deploya imediatamente.
+ */
+async function watchCommands() {
+  const registered = await fetchRegisteredCommandNames();
+
+  if (registered === null) {
+    // Não conseguiu buscar — tenta de novo no próximo ciclo
+    return;
+  }
+
+  const registeredSet = new Set(registered);
+  const missing = [...expectedNames].filter((name) => !registeredSet.has(name));
+
+  if (missing.length > 0) {
+    logger.warn(
+      { missing, registeredCount: registered.length },
+      "Comandos do MikuBot estão faltando — o RestoreCord pode ter sobrescrito. Re-deploying agora..."
+    );
+    try {
+      await deployCommands(allCommands.map((c) => c.data.toJSON()));
+      logger.info("Re-deploy emergencial concluído com sucesso.");
+    } catch (err) {
+      logger.error({ err }, "Falha no re-deploy emergencial");
+    }
+  } else {
+    logger.debug(
+      { total: registered.length, ours: expectedNames.size },
+      "Comandos OK — nenhuma ação necessária"
+    );
+  }
+}
 
 export async function loadCommands(commands: Collection<string, BotCommand>) {
   for (const cmd of allCommands) {
@@ -54,23 +91,25 @@ export async function loadCommands(commands: Collection<string, BotCommand>) {
   }
   logger.info({ count: allCommands.length }, "Commands loaded");
 
+  // Deploy inicial ao iniciar
   try {
     await deployCommands(allCommands.map((c) => c.data.toJSON()));
   } catch (err) {
-    logger.error({ err }, "Failed to deploy commands");
+    logger.error({ err }, "Failed to deploy commands on startup");
   }
 
-  // Configura o re-deploy automático a cada 10 minutos (600.000 ms)
-  // Isso garante que se o Restorecord sobrescrever os comandos, o MikuBot os coloque de volta.
-  if (!deployInterval) {
-    logger.info("Setting up automatic command re-deploy every 10 minutes");
-    deployInterval = setInterval(async () => {
-      try {
-        logger.info("Running scheduled command re-deploy...");
-        await deployCommands(allCommands.map((c) => c.data.toJSON()));
-      } catch (err) {
-        logger.error({ err }, "Failed to run scheduled command re-deploy");
-      }
-    }, 10 * 60 * 1000);
+  // Vigia de comandos: verifica a cada 2 minutos se os comandos ainda estão registrados.
+  // Se o RestoreCord sobrescrever, detectamos em até 2 minutos e re-registramos imediatamente.
+  if (!watcherInterval) {
+    const CHECK_INTERVAL_MS = 2 * 60 * 1000; // 2 minutos
+    logger.info(
+      { intervalMinutes: 2 },
+      "Iniciando vigia de comandos — verificação a cada 2 minutos"
+    );
+    watcherInterval = setInterval(() => {
+      watchCommands().catch((err) =>
+        logger.error({ err }, "Erro inesperado no vigia de comandos")
+      );
+    }, CHECK_INTERVAL_MS);
   }
 }
