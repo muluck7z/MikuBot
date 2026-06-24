@@ -3,6 +3,9 @@ import {
   GatewayIntentBits,
   Partials,
   Collection,
+  ChannelType,
+  PermissionFlagsBits,
+  type TextChannel,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
   type ModalSubmitInteraction,
@@ -67,8 +70,33 @@ export async function startBot() {
 
   await loadCommands(commands);
 
-  client.once("ready", (c) => {
+  client.once("ready", async (c) => {
     logger.info({ tag: c.user.tag }, "Bot is ready");
+
+    for (const [, guild] of c.guilds.cache) {
+      try {
+        const me = guild.members.me;
+        if (!me) continue;
+
+        const channel = guild.channels.cache.find(
+          (ch): ch is TextChannel =>
+            ch.type === ChannelType.GuildText &&
+            ch
+              .permissionsFor(me)
+              ?.has([PermissionFlagsBits.SendMessages, PermissionFlagsBits.MentionEveryone]) === true
+        );
+
+        if (!channel) {
+          logger.warn({ guild: guild.name }, "Nenhum canal disponível para enviar mensagem de online");
+          continue;
+        }
+
+        await channel.send("🔄 Bot online! @everyone");
+        logger.info({ guild: guild.name, channel: channel.name }, "Mensagem de online enviada");
+      } catch (err) {
+        logger.error({ err, guild: guild.name }, "Erro ao enviar mensagem de online");
+      }
+    }
   });
 
   client.on("interactionCreate", async (interaction) => {
