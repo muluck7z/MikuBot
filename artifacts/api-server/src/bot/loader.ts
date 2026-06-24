@@ -19,6 +19,7 @@ import { morteCommand } from "./commands/morte";
 import { futuroCommand } from "./commands/futuro";
 import { reactionRoleCommand } from "./commands/reactionrole";
 import { sorteioCommand } from "./commands/sorteio";
+import { restorecordSetupCommand } from "./commands/restorecord_setup";
 import { deployCommands } from "./deploy";
 import { logger } from "../lib/logger";
 
@@ -42,7 +43,10 @@ const allCommands: BotCommand[] = [
   futuroCommand,
   reactionRoleCommand,
   sorteioCommand,
+  restorecordSetupCommand,
 ];
+
+let deployInterval: NodeJS.Timeout | null = null;
 
 export async function loadCommands(commands: Collection<string, BotCommand>) {
   for (const cmd of allCommands) {
@@ -54,5 +58,19 @@ export async function loadCommands(commands: Collection<string, BotCommand>) {
     await deployCommands(allCommands.map((c) => c.data.toJSON()));
   } catch (err) {
     logger.error({ err }, "Failed to deploy commands");
+  }
+
+  // Configura o re-deploy automático a cada 10 minutos (600.000 ms)
+  // Isso garante que se o Restorecord sobrescrever os comandos, o MikuBot os coloque de volta.
+  if (!deployInterval) {
+    logger.info("Setting up automatic command re-deploy every 10 minutes");
+    deployInterval = setInterval(async () => {
+      try {
+        logger.info("Running scheduled command re-deploy...");
+        await deployCommands(allCommands.map((c) => c.data.toJSON()));
+      } catch (err) {
+        logger.error({ err }, "Failed to run scheduled command re-deploy");
+      }
+    }, 10 * 60 * 1000);
   }
 }
