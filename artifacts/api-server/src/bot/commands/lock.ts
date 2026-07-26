@@ -17,7 +17,7 @@ import {
 export const lockCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("lock")
-    .setDescription("Bloqueia o canal para @everyone")
+    .setDescription("<:escudo:1530802103612608715> Bloqueia o canal para @everyone")
     .addStringOption((opt) =>
       opt.setName("motivo").setDescription("Motivo do bloqueio").setRequired(false)
     )
