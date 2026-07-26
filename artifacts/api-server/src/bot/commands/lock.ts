@@ -17,7 +17,7 @@ import {
 export const lockCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("lock")
-    .setDescription("<:escudo:1530802103612608715> Bloqueia o canal para @everyone")
+    .setDescription("Bloqueia o canal para @everyone")
     .addStringOption((opt) =>
       opt.setName("motivo").setDescription("Motivo do bloqueio").setRequired(false)
     )
@@ -48,7 +48,7 @@ export const lockCommand: BotCommand = {
     await canal.send(
       v2Reply([
         infoContainer({
-          title: "🔒 Canal Bloqueado",
+          title: "<:escudo:1530802103612608715> Canal Bloqueado",
           description: `Este canal foi bloqueado por ${interaction.user}.\n**Motivo:** ${motivo}\n\nUse \`/unlock\` para desbloquear.`,
         }),
       ])
