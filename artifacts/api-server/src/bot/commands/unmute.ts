@@ -9,7 +9,7 @@ import { modContainer, errorContainer, v2Reply, v2EphemeralReply, COLORS, EMOJIS
 export const unmuteCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("unmute")
-    .setDescription("<:escudo:1530802103612608715> Remove o silenciamento de um usuário")
+    .setDescription("Remove o silenciamento de um usuário")
     .addUserOption((opt) =>
       opt.setName("usuario").setDescription("Usuário a dessilenciar").setRequired(true)
     )
