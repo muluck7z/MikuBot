@@ -150,13 +150,143 @@ async function sendTicketLog(options: {
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
+import { ChannelType } from "discord.js";
+import { midSessions, ticketPanelConfig } from "../ticketStore";
+
+async function handleOpenMid(interaction: ButtonInteraction) {
+  const guild = interaction.guild;
+  if (!guild) return;
+
+  await interaction.deferReply({ ephemeral: true });
+
+  const safeName = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 18);
+  const ticketName = `mid-${safeName}`;
+
+  const allChannels = await guild.channels.fetch();
+  const existing = allChannels.find((c) => c?.name === ticketName);
+  if (existing) {
+    await interaction.editReply(
+      v2EphemeralReply([errorContainer(`Você já possui um ticket de MID aberto: ${existing}`)])
+    );
+    return;
+  }
+
+  let category = allChannels.find(
+    (c) => c?.name.toLowerCase() === "tickets mid" && c.type === ChannelType.GuildCategory
+  );
+
+  if (!category) {
+    category = await guild.channels.create({
+      name: "Tickets MID",
+      type: ChannelType.GuildCategory,
+      permissionOverwrites: [
+        { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      ],
+    });
+  }
+
+  const MID_ROLES = ["1522025707780440094", "1457907642633818204"];
+  const botId = interaction.client.user.id;
+
+  const channel = await guild.channels.create({
+    name: ticketName,
+    type: ChannelType.GuildText,
+    parent: category.id,
+    topic: interaction.user.id,
+    permissionOverwrites: [
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: botId,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.ManageMessages,
+          PermissionFlagsBits.ManageChannels,
+        ],
+      },
+      {
+        id: interaction.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles,
+        ],
+      },
+      ...MID_ROLES.map(roleId => ({
+        id: roleId,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.ManageMessages,
+        ],
+      }))
+    ],
+  });
+
+  const thumbnailUrl = ticketPanelConfig.get(guild.id)?.thumbnailUrl;
+
+  ticketStore.set(channel.id, {
+    openerId: interaction.user.id,
+    openerTag: interaction.user.tag,
+    typeLabel: "MID",
+    openedAt: new Date(),
+    thumbnailUrl,
+  });
+
+  midSessions.set(channel.id, {
+    openerId: interaction.user.id,
+    guildId: guild.id,
+    channelId: channel.id,
+    step: "partner",
+  });
+
+  const btnCancel = secondaryButton("ticket:cancel_user", "Cancelar");
+  const btnClose = dangerButton("ticket:confirm_close", "Fechar Ticket");
+  const btnClaim = secondaryButton("ticket:claim", "Assumir Ticket");
+
+  await (channel as TextChannel).send({
+    content: `${interaction.user} | <@&${MID_ROLES[0]}> | <@&${MID_ROLES[1]}>`,
+    allowedMentions: { users: [interaction.user.id], roles: MID_ROLES },
+  });
+
+  await (channel as TextChannel).send({
+    ...v2Reply(
+      [
+        infoContainer({
+          title: `🤝 Ticket de MID Aberto`,
+          description: [
+            `Olá, ${interaction.user}! Seu ticket de intermediação foi aberto.`,
+            "",
+            "**Mencione o seu parceiro de troca ou envie o ID dele no chat** para que ele seja adicionado ao ticket.",
+          ].join("\n"),
+          avatarUrl: thumbnailUrl ?? interaction.user.displayAvatarURL({ size: 256 }),
+        }),
+      ],
+      { buttons: [row(btnCancel, btnClose, btnClaim)] }
+    ),
+  });
+
+  await interaction.editReply(
+    v2EphemeralReply([successContainer("Ticket Aberto!", `Seu ticket de MID foi criado em ${channel}`)])
+  );
+}
+
 export async function handleButton(interaction: ButtonInteraction) {
   const parts = interaction.customId.split(":");
   const [ns, action] = parts;
 
   try {
     if (ns === "ticket") {
-      await handleTicketButton(interaction, action!, parts);
+      if (action === "open_mid") {
+        await handleOpenMid(interaction);
+      } else {
+        await handleTicketButton(interaction, action!, parts);
+      }
     } else if (ns === "sorteio") {
       await handleSorteioButton(interaction, action!, parts);
     } else {
@@ -323,21 +453,34 @@ async function handleTicketButton(
 
   } else if (action === "claim") {
     const channel = interaction.channel as TextChannel;
-    if (!channel.name.startsWith("ticket-")) {
+    if (!channel.name.startsWith("ticket-") && !channel.name.startsWith("mid-")) {
       await interaction.reply(v2EphemeralReply([errorContainer("Este canal não é um ticket.")]));
       return;
     }
 
+    const isMid = channel.name.startsWith("mid-");
+    const MID_STAFF_ROLE = "1522025707780440094";
     const TICKET_STAFF_ROLES = ["1497801117940056125", "1457907642633818204"];
+
     const member = await guild.members.fetch(interaction.user.id).catch(() => null);
-    const canClaim = member && (
-      member.permissions.has(PermissionFlagsBits.ManageChannels) ||
-      TICKET_STAFF_ROLES.some((id) => member.roles.cache.has(id))
-    );
+
+    let canClaim = false;
+    if (member) {
+      if (member.permissions.has(PermissionFlagsBits.ManageChannels)) {
+        canClaim = true;
+      } else if (isMid) {
+        // Apenas o cargo MID pode assumir tickets MID
+        canClaim = member.roles.cache.has(MID_STAFF_ROLE);
+      } else {
+        canClaim = TICKET_STAFF_ROLES.some((id) => member.roles.cache.has(id));
+      }
+    }
+
     if (!canClaim) {
-      await interaction.reply(
-        v2EphemeralReply([errorContainer("Você não tem permissão para assumir tickets.")])
-      );
+      const errorMsg = isMid
+        ? "Apenas membros com o cargo de MID podem assumir este ticket."
+        : "Você não tem permissão para assumir tickets.";
+      await interaction.reply(v2EphemeralReply([errorContainer(errorMsg)]));
       return;
     }
 

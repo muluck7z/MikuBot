@@ -27,6 +27,8 @@ import { errorContainer } from "./v2/index";
 import { reactionRoleStore, makeKey, emojiKeyFromReaction } from "./reactionRoleStore";
 import { cargoSessions } from "./cargoSessionStore";
 import { handleCargoCommand, handleCargoSession } from "./handlers/cargo";
+import { handleMidSession } from "./handlers/mid";
+import { midSessions } from "./ticketStore";
 
 export interface BotCommand {
   data: { name: string; toJSON(): object };
@@ -173,6 +175,15 @@ export async function startBot() {
     if (session && session.guildId === message.guild.id) {
       handleCargoSession(message, session).catch((err) =>
         logger.error({ err }, "cargo session error")
+      );
+      return;
+    }
+
+    // Sessão de MID (parceiro de troca)
+    const midSession = midSessions.get(message.channel.id);
+    if (midSession && midSession.guildId === message.guild.id) {
+      handleMidSession(message, midSession).catch((err) =>
+        logger.error({ err }, "mid session error")
       );
     }
   });

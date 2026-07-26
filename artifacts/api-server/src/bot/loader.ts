@@ -1,6 +1,7 @@
 import { Collection } from "discord.js";
 import { type BotCommand } from "./index";
 import { ticketCommand } from "./commands/ticket";
+import { midCommand } from "./commands/mid";
 import { embedCommand } from "./commands/embed";
 import { banCommand } from "./commands/ban";
 import { unbanCommand } from "./commands/unban";
@@ -25,6 +26,7 @@ import { logger } from "../lib/logger";
 
 const allCommands: BotCommand[] = [
   ticketCommand,
+  midCommand,
   embedCommand,
   banCommand,
   unbanCommand,
