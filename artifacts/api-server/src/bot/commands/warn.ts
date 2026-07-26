@@ -1,6 +1,7 @@
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
+  TextChannel,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { type BotCommand } from "../index";
