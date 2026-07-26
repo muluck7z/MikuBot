@@ -29,6 +29,7 @@ import { cargoSessions } from "./cargoSessionStore";
 import { handleCargoCommand, handleCargoSession } from "./handlers/cargo";
 import { handleMidSession } from "./handlers/mid";
 import { midSessions } from "./ticketStore";
+import { cacheGuildInvites, handleMemberAdd } from "./inviteTracker";
 
 export interface BotCommand {
   data: { name: string; toJSON(): object };
@@ -43,6 +44,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildModeration,
     GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildInvites,
   ],
   partials: [Partials.Message, Partials.Channel, Partials.GuildMember, Partials.Reaction],
 });
@@ -98,6 +100,11 @@ export async function startBot() {
       } catch (err) {
         logger.error({ err, guild: guild.name }, "Erro ao enviar mensagem de online");
       }
+
+      // Cacheia invites do servidor para o rastreamento de economia
+      await cacheGuildInvites(guild).catch((err) =>
+        logger.error({ err, guild: guild.name }, "Erro ao cachear invites na inicialização")
+      );
     }
   });
 
@@ -118,7 +125,7 @@ export async function startBot() {
       interaction.customId.startsWith("sorteio:entrar:");
 
     // Commands available to all members regardless of role
-    const PUBLIC_COMMANDS = new Set(["morte", "futuro"]);
+    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco"]);
     const isPublicCommand =
       interaction.isChatInputCommand() && PUBLIC_COMMANDS.has(interaction.commandName);
 
@@ -227,6 +234,14 @@ export async function startBot() {
       logger.error({ err }, "Erro ao gerenciar cargo por reação");
     }
   }
+
+  // ── Rastreamento de invites (economia) ───────────────────────────────────────
+
+  client.on("guildMemberAdd", (member) => {
+    handleMemberAdd(member.guild, member.id).catch((err) =>
+      logger.error({ err }, "guildMemberAdd invite tracking error")
+    );
+  });
 
   client.on("messageReactionAdd", (reaction, user) => {
     handleReaction(reaction, user, "add").catch((err) =>
