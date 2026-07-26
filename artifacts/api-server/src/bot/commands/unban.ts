@@ -9,7 +9,7 @@ import { modContainer, errorContainer, v2Reply, v2EphemeralReply, COLORS, EMOJIS
 export const unbanCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("unban")
-    .setDescription("Remove o banimento de um usuário")
+    .setDescription("<:escudo:1530802103612608715> Remove o banimento de um usuário")
     .addStringOption((opt) =>
       opt.setName("userid").setDescription("ID do usuário a ser desbanido").setRequired(true)
     )
