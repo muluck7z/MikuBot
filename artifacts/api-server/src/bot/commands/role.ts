@@ -16,7 +16,7 @@ import {
 export const roleCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("role")
-    .setDescription("Gerencia cargos de um usuário")
+    .setDescription("<:escudo:1530802103612608715> Gerencia cargos de um usuário")
     .addSubcommand((sub) =>
       sub
         .setName("add")
