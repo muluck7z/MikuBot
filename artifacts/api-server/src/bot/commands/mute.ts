@@ -19,7 +19,7 @@ function parseDuration(str: string): number | null {
 export const muteCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("mute")
-    .setDescription("Silencia um usuário (timeout)")
+    .setDescription("<:escudo:1530802103612608715> Silencia um usuário (timeout)")
     .addUserOption((opt) =>
       opt.setName("usuario").setDescription("Usuário a silenciar").setRequired(true)
     )
