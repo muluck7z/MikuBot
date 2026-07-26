@@ -1,5 +1,5 @@
 import { type Message, PermissionFlagsBits } from "discord.js";
-import { midSessions, type MidSession } from "../ticketStore";
+import { midSessions, type MidSession, ticketStore } from "../ticketStore";
 import { successContainer, errorContainer, v2Reply } from "../v2/index";
 import { logger } from "../../lib/logger";
 
