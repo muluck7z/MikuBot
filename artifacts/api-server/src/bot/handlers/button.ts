@@ -251,7 +251,7 @@ async function handleOpenMid(interaction: ButtonInteraction) {
   const btnClaim = secondaryButton("ticket:claim", "Assumir Ticket");
 
   await (channel as TextChannel).send({
-    content: `${interaction.user} | <@&${MID_ROLES[0]}> | <@&${MID_ROLES[1]}> (O atendimento arca em respeito com os termos)`,
+    content: `${interaction.user} | <@&${MID_ROLES[0]}> | <@&${MID_ROLES[1]}> O atendimento arca em respeito com os termos`,
     allowedMentions: { users: [interaction.user.id], roles: MID_ROLES },
   });
 
@@ -263,7 +263,16 @@ async function handleOpenMid(interaction: ButtonInteraction) {
           description: [
             `Olá, ${interaction.user}! Seu ticket de intermediação foi aberto.`,
             "",
-            "**Mencione o seu parceiro de troca ou envie o ID dele no chat** para que ele seja adicionado ao ticket.",
+            "⚠️ **Atenção:** Este atendimento pode ter um custo financeiro de **1 a 2 reais** pelo serviço de intermediação.",
+            "",
+            "📋 **Para agilizar o atendimento, por favor informe:**",
+            "• Quem vai **vender** e quem vai **comprar** (ou se é uma troca)",
+            "• **O que** será vendido/comprado/trocado",
+            "• Qualquer detalhe importante da negociação",
+            "",
+            "**Mencione ou envie o ID do seu parceiro de troca** para que ele seja adicionado ao ticket.",
+            "",
+            "🕐 Um middleman irá atendê-los assim que possível!",
           ].join("\n"),
           avatarUrl: thumbnailUrl ?? interaction.user.displayAvatarURL({ size: 256 }),
         }),
