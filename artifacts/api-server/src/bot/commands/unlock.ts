@@ -11,7 +11,7 @@ import { infoContainer, successContainer, v2Reply, v2EphemeralReply, COLORS } fr
 export const unlockCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("unlock")
-    .setDescription("Desbloqueia o canal para @everyone")
+    .setDescription("<:escudo:1530802103612608715> Desbloqueia o canal para @everyone")
     .addChannelOption((opt) =>
       opt
         .setName("canal")
