@@ -1,6 +1,7 @@
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
+  TextChannel,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { type BotCommand } from "../index";
@@ -96,5 +97,22 @@ export const muteCommand: BotCommand = {
         }),
       ])
     );
+
+    const punishLog = interaction.client.channels.cache.get("1526621003281862768") as TextChannel | undefined;
+    if (punishLog) {
+      await punishLog.send({
+        ...v2Reply([
+          modContainer({
+            action: `${EMOJIS.mod} Usuário Silenciado`,
+            targetTag: user.tag,
+            targetId: user.id,
+            moderatorTag: interaction.user.tag,
+            reason: motivo,
+            avatarUrl: user.displayAvatarURL({ size: 256 }),
+            extra: `**Duração:** ${duracaoStr}\n**Até:** <t:${untilTs}:F>`,
+          })
+        ]),
+      }).catch(() => null);
+    }
   },
 };
