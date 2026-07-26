@@ -4,6 +4,8 @@ export interface TicketMeta {
   typeLabel: string;
   openedAt: Date;
   rating?: number;
+  partnerRating?: number;
+  partnerId?: string;
   thumbnailUrl?: string;
 }
 

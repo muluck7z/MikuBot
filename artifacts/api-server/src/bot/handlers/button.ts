@@ -27,6 +27,7 @@ import { buildSorteioComponents } from "../commands/sorteio";
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 const RATING_CHANNEL_ID = "1512670969653887137";
 const LOG_CHANNEL_ID    = "1512670984572764303";
+const MID_RATING_CHANNEL_ID = "1522014597123539044";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -346,17 +347,23 @@ async function handleTicketButton(
     const [openerId, claimerId] = topic.split(":");
 
     if (openerId && claimerId) {
+      const meta = ticketStore.get(channel.id);
+      const partnerId = meta?.partnerId;
+      const isMid = channel.name.startsWith("mid-");
+
       const STAR = { name: "estrela", id: "1508926292513521837", animated: true };
-      const btn1 = new ButtonBuilder().setCustomId(`ticket:rate:1:${claimerId}:${openerId}`).setLabel("1").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
-      const btn2 = new ButtonBuilder().setCustomId(`ticket:rate:2:${claimerId}:${openerId}`).setLabel("2").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
-      const btn3 = new ButtonBuilder().setCustomId(`ticket:rate:3:${claimerId}:${openerId}`).setLabel("3").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
+      const thumbTicket = meta?.thumbnailUrl;
+
+      // Card para o Opener
+      const btn1O = new ButtonBuilder().setCustomId(`ticket:rate:1:${claimerId}:${openerId}`).setLabel("1").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
+      const btn2O = new ButtonBuilder().setCustomId(`ticket:rate:2:${claimerId}:${openerId}`).setLabel("2").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
+      const btn3O = new ButtonBuilder().setCustomId(`ticket:rate:3:${claimerId}:${openerId}`).setLabel("3").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
 
       await channel.send({
         content: `<@${openerId}>`,
         allowedMentions: { users: [openerId] },
       });
 
-      const thumbTicket = ticketStore.get(channel.id)?.thumbnailUrl;
       await channel.send({
         ...v2Reply(
           [
@@ -366,9 +373,34 @@ async function handleTicketButton(
               avatarUrl: thumbTicket,
             }),
           ],
-          { buttons: [row(btn1, btn2, btn3)] }
+          { buttons: [row(btn1O, btn2O, btn3O)] }
         ),
       });
+
+      // Card para o Parceiro (se for MID)
+      if (isMid && partnerId) {
+        const btn1P = new ButtonBuilder().setCustomId(`ticket:rate:1:${claimerId}:${partnerId}`).setLabel("1").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
+        const btn2P = new ButtonBuilder().setCustomId(`ticket:rate:2:${claimerId}:${partnerId}`).setLabel("2").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
+        const btn3P = new ButtonBuilder().setCustomId(`ticket:rate:3:${claimerId}:${partnerId}`).setLabel("3").setEmoji(STAR).setStyle(ButtonStyle.Secondary);
+
+        await channel.send({
+          content: `<@${partnerId}>`,
+          allowedMentions: { users: [partnerId] },
+        });
+
+        await channel.send({
+          ...v2Reply(
+            [
+              infoContainer({
+                title: "Avaliação de Atendimento (Parceiro)",
+                description: `Qual nota você daria para o atendimento de <@${claimerId}>?`,
+                avatarUrl: thumbTicket,
+              }),
+            ],
+            { buttons: [row(btn1P, btn2P, btn3P)] }
+          ),
+        });
+      }
     }
 
     const closedById  = interaction.user.id;
@@ -511,49 +543,76 @@ async function handleTicketButton(
     logger.info({ moderator: interaction.user.tag, channel: channel.name }, "Ticket claimed");
 
   } else if (action === "rate") {
-    // parts: ["ticket", "rate", stars, claimerId, openerId]
-    const [, , starsStr, claimerId, openerId] = parts;
+    // parts: ["ticket", "rate", stars, claimerId, targetUserId]
+    const [, , starsStr, claimerId, targetUserId] = parts;
     const stars = parseInt(starsStr ?? "0", 10);
 
-    if (!claimerId || !openerId || isNaN(stars)) {
+    if (!claimerId || !targetUserId || isNaN(stars)) {
       await interaction.reply(v2EphemeralReply([errorContainer("Dados de avaliação inválidos.")]));
       return;
     }
 
-    // Only the ticket opener can rate
-    if (interaction.user.id !== openerId) {
+    // Only the targeted user can click this button
+    if (interaction.user.id !== targetUserId) {
       await interaction.reply(
-        v2EphemeralReply([errorContainer("Apenas quem abriu o ticket pode avaliar o atendimento.")])
+        v2EphemeralReply([errorContainer("Você não pode avaliar no card de outro usuário.")])
       );
       return;
     }
 
     const channel = interaction.channel as TextChannel;
-
-    // Store rating in ticketStore so the log can pick it up
+    const isMid = channel.name.startsWith("mid-");
     const meta = ticketStore.get(channel.id);
-    if (meta) {
-      ticketStore.set(channel.id, { ...meta, rating: stars });
+
+    if (!meta) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Metadados do ticket não encontrados.")]));
+      return;
     }
 
-    // Send rating to the rating channel
-    const ratingChannel = guild.channels.cache.get(RATING_CHANNEL_ID) as TextChannel | undefined;
-    if (ratingChannel) {
-      // Thumbnail = avatar de quem avaliou (opener)
-      const openerAvatarUrl = interaction.user.displayAvatarURL({ size: 256 });
-      await ratingChannel.send({
-        ...v2Reply([
-          infoContainer({
-            title: "Nova Avaliação de Atendimento",
-            description: [
+    // Update the correct rating field
+    if (targetUserId === meta.openerId) {
+      meta.rating = stars;
+    } else if (isMid && targetUserId === meta.partnerId) {
+      meta.partnerRating = stars;
+    } else {
+      await interaction.reply(v2EphemeralReply([errorContainer("Você não faz parte deste ticket como solicitante ou parceiro.")]));
+      return;
+    }
+
+    // If it's MID, check if both have rated
+    const bothRated = !isMid || (meta.rating !== undefined && meta.partnerRating !== undefined);
+
+    if (bothRated) {
+      const ratingChannelId = isMid ? MID_RATING_CHANNEL_ID : RATING_CHANNEL_ID;
+      const ratingChannel = guild.channels.cache.get(ratingChannelId) as TextChannel | undefined;
+      
+      if (ratingChannel) {
+        const description = isMid 
+          ? [
               `**Atendente:** <@${claimerId}>`,
-              `**Avaliado por:** <@${openerId}>`,
-              `**Nota:** ${starLabel(stars)} (${stars}/3)`,
-            ].join("\n"),
-            avatarUrl: openerAvatarUrl,
-          }),
-        ]),
-      });
+              "",
+              `**Solicitante:** <@${meta.openerId}>`,
+              `**Nota:** ${starLabel(meta.rating!)} (${meta.rating}/3)`,
+              "",
+              `**Parceiro:** <@${meta.partnerId}>`,
+              `**Nota:** ${starLabel(meta.partnerRating!)} (${meta.partnerRating}/3)`,
+            ].join("\n")
+          : [
+              `**Atendente:** <@${claimerId}>`,
+              `**Avaliado por:** <@${meta.openerId}>`,
+              `**Nota:** ${starLabel(meta.rating!)} (${meta.rating}/3)`,
+            ].join("\n");
+
+        await ratingChannel.send({
+          ...v2Reply([
+            infoContainer({
+              title: "Nova Avaliação de Atendimento",
+              description,
+              avatarUrl: meta.thumbnailUrl ?? interaction.user.displayAvatarURL({ size: 256 }),
+            }),
+          ]),
+        });
+      }
     }
 
     // Acknowledge and disable further ratings
@@ -566,7 +625,7 @@ async function handleTicketButton(
       ]),
     } as never);
 
-    logger.info({ openerId, claimerId, stars, channel: channel.name }, "Ticket rated");
+    logger.info({ userId: targetUserId, claimerId, stars, channel: channel.name }, "Ticket rated");
   }
 }
 

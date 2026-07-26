@@ -52,6 +52,12 @@ export async function handleMidSession(message: Message, session: MidSession): P
       // Encerra a sessão
       midSessions.delete(session.channelId);
 
+      // Salva o parceiro no ticketStore para uso posterior na avaliação
+      const meta = ticketStore.get(channel.id);
+      if (meta) {
+        ticketStore.set(channel.id, { ...meta, partnerId: partner.id });
+      }
+
       await message.reply({
         ...v2Reply([
           successContainer(
