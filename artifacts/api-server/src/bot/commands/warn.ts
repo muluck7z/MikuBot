@@ -19,7 +19,7 @@ const warnings = new Map<string, { motivo: string; moderador: string; data: Date
 export const warnCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("warn")
-    .setDescription("Gerencia advertências de usuários")
+    .setDescription("<:escudo:1530802103612608715> Gerencia advertências de usuários")
     .addSubcommand((sub) =>
       sub
         .setName("add")
