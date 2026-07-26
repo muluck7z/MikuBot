@@ -16,7 +16,7 @@ import {
 export const roleCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("role")
-    .setDescription("<:escudo:1530802103612608715> Gerencia cargos de um usuário")
+    .setDescription("Gerencia cargos de um usuário")
     .addSubcommand((sub) =>
       sub
         .setName("add")
@@ -144,7 +144,7 @@ export const roleCommand: BotCommand = {
       await interaction.reply(
         v2EphemeralReply([
           infoContainer({
-            title: `📋 Cargos de ${user.tag}`,
+            title: `<:escudo:1530802103612608715> Cargos de ${user.tag}`,
             description: `Total: **${count}** cargo(s)\n\n${roles}`,
             avatarUrl: user.displayAvatarURL({ size: 256 }),
           }),
