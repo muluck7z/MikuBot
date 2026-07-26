@@ -124,12 +124,23 @@ export async function startBot() {
       interaction.isButton() &&
       interaction.customId.startsWith("sorteio:entrar:");
 
+    // Botões do banco são públicos — qualquer membro pode usar seu próprio banco
+    const isBancoInteraction =
+      interaction.isButton() &&
+      interaction.customId.startsWith("banco:");
+
     // Commands available to all members regardless of role
     const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco"]);
     const isPublicCommand =
       interaction.isChatInputCommand() && PUBLIC_COMMANDS.has(interaction.commandName);
 
-    if (!isPublicCommand && !isTicketInteraction && !isSorteioEntrar && (!member || !hasStaffAccess(member))) {
+    if (
+      !isPublicCommand &&
+      !isTicketInteraction &&
+      !isSorteioEntrar &&
+      !isBancoInteraction &&
+      (!member || !hasStaffAccess(member))
+    ) {
       await replyAccessDenied(
         interaction as ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction
       );
