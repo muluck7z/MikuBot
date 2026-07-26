@@ -81,16 +81,14 @@ export const futuroCommand: BotCommand = {
 
     const isProximo = Math.random() < 0.5;
     const profecia  = isProximo ? pick(PROFECIAS_PROXIMAS) : pick(PROFECIAS_DISTANTES);
-    const label     = isProximo ? "🌙 Futuro Próximo" : "⭐ Futuro Distante";
+    const label     = isProximo ? "Próximo" : "Distante";
 
     await interaction.reply(
       v2Reply([
         infoContainer({
-          title: `🔮 Profecia — ${user.displayName}`,
+          title: `<a:22177whitebutterfly:1530812615029297273> Profecia - ${user.displayName}`,
           description: [
-            `**${label}**`,
-            "",
-            `*${profecia}*`,
+            `<a:w_:1530812838099292192> **Futuro** *${profecia}* > **${label}**`,
           ].join("\n"),
           avatarUrl: user.displayAvatarURL({ size: 256 }),
         }),
