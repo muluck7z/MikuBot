@@ -148,7 +148,7 @@ export const ticketCommand: BotCommand = {
       } as never);
     } else if (sub === "add") {
       const channel = interaction.channel as TextChannel;
-      if (!channel.name.startsWith("ticket-")) {
+      if (!channel.name.startsWith("ticket-") && !channel.name.startsWith("mid-")) {
         await interaction.reply(v2EphemeralReply([errorContainer("Este canal não é um ticket.")]));
         return;
       }
@@ -170,7 +170,7 @@ export const ticketCommand: BotCommand = {
       );
     } else if (sub === "remove") {
       const channel = interaction.channel as TextChannel;
-      if (!channel.name.startsWith("ticket-")) {
+      if (!channel.name.startsWith("ticket-") && !channel.name.startsWith("mid-")) {
         await interaction.reply(v2EphemeralReply([errorContainer("Este canal não é um ticket.")]));
         return;
       }

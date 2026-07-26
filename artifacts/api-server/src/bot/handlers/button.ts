@@ -250,7 +250,7 @@ async function handleOpenMid(interaction: ButtonInteraction) {
   const btnClaim = secondaryButton("ticket:claim", "Assumir Ticket");
 
   await (channel as TextChannel).send({
-    content: `${interaction.user} | <@&${MID_ROLES[0]}> | <@&${MID_ROLES[1]}>`,
+    content: `${interaction.user} | <@&${MID_ROLES[0]}> | <@&${MID_ROLES[1]}> (O atendimento arca em respeito com os termos)`,
     allowedMentions: { users: [interaction.user.id], roles: MID_ROLES },
   });
 
@@ -313,7 +313,7 @@ async function handleTicketButton(
 
   if (action === "confirm_close") {
     const channel = interaction.channel as TextChannel;
-    if (!channel.name.startsWith("ticket-")) {
+    if (!channel.name.startsWith("ticket-") && !channel.name.startsWith("mid-")) {
       await interaction.reply(v2EphemeralReply([errorContainer("Este canal não é um ticket.")]));
       return;
     }
@@ -395,7 +395,7 @@ async function handleTicketButton(
 
   } else if (action === "cancel_user") {
     const channel = interaction.channel as TextChannel;
-    if (!channel.name.startsWith("ticket-")) {
+    if (!channel.name.startsWith("ticket-") && !channel.name.startsWith("mid-")) {
       await interaction.reply(v2EphemeralReply([errorContainer("Este canal não é um ticket.")]));
       return;
     }
@@ -418,7 +418,7 @@ async function handleTicketButton(
 
   } else if (action === "confirm_cancel_user") {
     const channel = interaction.channel as TextChannel;
-    if (!channel.name.startsWith("ticket-")) {
+    if (!channel.name.startsWith("ticket-") && !channel.name.startsWith("mid-")) {
       await interaction.reply(v2EphemeralReply([errorContainer("Este canal não é um ticket.")]));
       return;
     }

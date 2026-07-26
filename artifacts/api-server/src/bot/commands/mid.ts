@@ -49,7 +49,7 @@ export const midCommand: BotCommand = {
 
     if (sub === "painel") {
       const titulo =
-        interaction.options.getString("titulo") ?? `${MID_EMOJI} Central de MID | Secret Forn`;
+        interaction.options.getString("titulo") ?? `Central de MID | Secret Forn`;
       const thumbnailRaw = interaction.options.getString("thumbnail");
 
       let thumbnailUrl: string | undefined;
@@ -72,15 +72,24 @@ export const midCommand: BotCommand = {
       const btnOpen = new ButtonBuilder()
         .setCustomId("ticket:open_mid")
         .setLabel("Abrir MID")
-        .setEmoji(MID_EMOJI)
-        .setStyle(ButtonStyle.Primary);
+        .setStyle(ButtonStyle.Secondary);
 
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(btnOpen);
+      const btnTerms = new ButtonBuilder()
+        .setLabel("Termos")
+        .setStyle(ButtonStyle.Link)
+        .setURL("https://discord.com/channels/1448504707462070457/1530703171238887615");
+
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(btnOpen, btnTerms);
 
       const descricao = [
         "Para realizar uma intermediação segura, abra um ticket abaixo.",
         "Somente a nossa equipe de MID terá acesso ao atendimento.",
         "Tenha em mãos o ID ou a menção do seu parceiro de troca.",
+        "",
+        "**Informações Importantes:**",
+        "• Os mids cobram de **1 a 2 reais** pelo atendimento.",
+        "• Em situações especiais, este valor pode ser até **5 reais** ou **de graça** caso o mid tenha vontade.",
+        "• A moderação também fica de olho nos tickets de mid.",
         "",
         "Clique no botão abaixo para iniciar:",
       ].join("\n");
