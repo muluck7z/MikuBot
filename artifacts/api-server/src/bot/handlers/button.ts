@@ -530,6 +530,16 @@ async function handleTicketButton(
       return;
     }
 
+    // Check if already claimed
+    const topicRaw = channel.topic ?? "";
+    if (topicRaw.includes(":")) {
+      const existingClaimerId = topicRaw.split(":")[1];
+      await interaction.reply(
+        v2EphemeralReply([errorContainer(`Este ticket já foi assumido por <@${existingClaimerId}>. Apenas uma pessoa pode ser responsável pelo atendimento.`)])
+      );
+      return;
+    }
+
     await channel.permissionOverwrites.edit(interaction.user.id, {
       ViewChannel: true,
       SendMessages: true,
@@ -539,8 +549,8 @@ async function handleTicketButton(
     });
 
     // Update topic to "openerId:claimerId" so we can use it for rating/log later
-    const openerId = channel.topic ?? "";
-    if (openerId && !openerId.includes(":")) {
+    const openerId = topicRaw;
+    if (openerId) {
       await channel.setTopic(`${openerId}:${interaction.user.id}`).catch(() => null);
     }
 
