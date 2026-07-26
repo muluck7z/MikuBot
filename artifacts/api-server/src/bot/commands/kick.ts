@@ -10,7 +10,7 @@ import { IMMUNE_ROLE_ID } from "../config";
 export const kickCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("kick")
-    .setDescription("<:escudo:1530802103612608715> Expulsa um usuário do servidor")
+    .setDescription("Expulsa um usuário do servidor")
     .addUserOption((opt) =>
       opt.setName("usuario").setDescription("Usuário a expulsar").setRequired(true)
     )
