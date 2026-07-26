@@ -11,7 +11,7 @@ import { infoContainer, successContainer, v2Reply, v2EphemeralReply, COLORS } fr
 export const unlockCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("unlock")
-    .setDescription("<:escudo:1530802103612608715> Desbloqueia o canal para @everyone")
+    .setDescription("Desbloqueia o canal para @everyone")
     .addChannelOption((opt) =>
       opt
         .setName("canal")
@@ -38,7 +38,7 @@ export const unlockCommand: BotCommand = {
     await canal.send(
       v2Reply([
         infoContainer({
-          title: "🔓 Canal Desbloqueado",
+          title: "<:escudo:1530802103612608715> Canal Desbloqueado",
           description: `Este canal foi desbloqueado por ${interaction.user}.`,
         }),
       ])
