@@ -10,7 +10,7 @@ import { successContainer, errorContainer, v2EphemeralReply } from "../v2/index"
 export const clearCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("clear")
-    .setDescription("Limpa mensagens do canal")
+    .setDescription("<:escudo:1530802103612608715> Limpa mensagens do canal")
     .addIntegerOption((opt) =>
       opt
         .setName("quantidade")
