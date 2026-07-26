@@ -17,7 +17,7 @@ import { IMMUNE_ROLE_ID } from "../config";
 export const banCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("Bane um usuário do servidor")
+    .setDescription("<:escudo:1530802103612608715> Bane um usuário do servidor")
     .addUserOption((opt) =>
       opt.setName("usuario").setDescription("Usuário a ser banido").setRequired(true)
     )
