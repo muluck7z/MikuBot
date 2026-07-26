@@ -272,6 +272,11 @@ async function handleOpenMid(interaction: ButtonInteraction) {
     ),
   });
 
+  await (channel as TextChannel).send({
+    content: `${interaction.user}, por favor mencione ou pegue o ID do usuário com que você deseja negociar que vou agora mesmo puxar ele para cá!`,
+    allowedMentions: { users: [interaction.user.id] },
+  });
+
   await interaction.editReply(
     v2EphemeralReply([successContainer("Ticket Aberto!", `Seu ticket de MID foi criado em ${channel}`)])
   );
