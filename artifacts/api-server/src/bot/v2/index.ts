@@ -18,7 +18,7 @@ export const IS_COMPONENTS_V2 = MessageFlags.IsComponentsV2;
 export const EMOJIS = {
   positive: "<a:emoji_94:1508159306565156984>",
   negative: "<a:emoji_1838:1508159758685962452>",
-  mod:      "<a:zfeliz:1508160009295630388>",
+  mod:      "<:escudo:1530802103612608715>",
 } as const;
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
