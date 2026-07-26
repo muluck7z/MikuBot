@@ -19,7 +19,7 @@ const warnings = new Map<string, { motivo: string; moderador: string; data: Date
 export const warnCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("warn")
-    .setDescription("<:escudo:1530802103612608715> Gerencia advertências de usuários")
+    .setDescription("Gerencia advertências de usuários")
     .addSubcommand((sub) =>
       sub
         .setName("add")
@@ -99,7 +99,7 @@ export const warnCommand: BotCommand = {
         await interaction.reply(
           v2EphemeralReply([
             infoContainer({
-              title: `📋 Advertências de ${user.tag}`,
+              title: `<:escudo:1530802103612608715> Advertências de ${user.tag}`,
               description: "Nenhuma advertência registrada.",
               avatarUrl: user.displayAvatarURL({ size: 256 }),
             }),
@@ -119,7 +119,7 @@ export const warnCommand: BotCommand = {
       await interaction.reply(
         v2EphemeralReply([
           infoContainer({
-            title: `📋 Advertências de ${user.tag}`,
+            title: `<:escudo:1530802103612608715> Advertências de ${user.tag}`,
             description: `Total: **${list.length}** advertência(s)\n\n${warnLines}`,
             avatarUrl: user.displayAvatarURL({ size: 256 }),
           }),
