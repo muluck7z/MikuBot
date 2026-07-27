@@ -124,9 +124,10 @@ export async function startBot() {
       interaction.isButton() &&
       interaction.customId.startsWith("sorteio:entrar:");
 
-    // Botões do banco são públicos — qualquer membro pode usar seu próprio banco
+    // Interações do banco são públicas — qualquer membro pode usar seu próprio banco
+    // (botões E o envio dos modais, como escolher o valor de um empréstimo/investimento)
     const isBancoInteraction =
-      interaction.isButton() &&
+      (interaction.isButton() || interaction.isModalSubmit()) &&
       interaction.customId.startsWith("banco:");
 
     // Commands available to all members regardless of role
