@@ -428,3 +428,43 @@ export function withdrawPartial(userId: string, amount: number): WithdrawPartial
   saveData();
   return { ok: true, amount, closed: false, remainingBalance: inv.balance };
 }
+
+// ─── Transferências entre usuários (Pix) ───────────────────────────────────────
+
+export type TransferResult =
+  | { ok: true; amount: number }
+  | { ok: false; reason: "invalid_amount" | "insufficient" | "locked" | "same_user" };
+
+/**
+ * Transfere fichas de um usuário para outro (comando /pix). O remetente
+ * precisa ter saldo suficiente e a conta não pode estar bloqueada.
+ */
+export function transferFichas(fromUserId: string, toUserId: string, amount: number): TransferResult {
+  if (fromUserId === toUserId) return { ok: false, reason: "same_user" };
+  if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "invalid_amount" };
+
+  const from = processAccount(fromUserId);
+  if (from.bankLocked) return { ok: false, reason: "locked" };
+  if (from.fichas < amount) return { ok: false, reason: "insufficient" };
+
+  const to = processAccount(toUserId);
+  from.fichas -= amount;
+  to.fichas += amount;
+  saveData();
+  return { ok: true, amount };
+}
+
+// ─── Concessão administrativa de fichas ────────────────────────────────────────
+
+export type GiveResult =
+  | { ok: true; amount: number; newBalance: number }
+  | { ok: false; reason: "invalid_amount" };
+
+/** Dá fichas a um usuário "do nada" (sem debitar de ninguém) — uso restrito. */
+export function giveFichas(userId: string, amount: number): GiveResult {
+  if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "invalid_amount" };
+  const user = processAccount(userId);
+  user.fichas += amount;
+  saveData();
+  return { ok: true, amount, newBalance: user.fichas };
+}
