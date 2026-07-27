@@ -127,10 +127,11 @@ export function warnContainer(title: string, description: string): ContainerBuil
 
 export function v2Reply(
   containers: ContainerBuilder[],
-  options?: { ephemeral?: boolean; buttons?: ActionRowBuilder<ButtonBuilder>[] }
+  options?: { ephemeral?: boolean; buttons?: ActionRowBuilder<ButtonBuilder>[]; files?: unknown[] }
 ) {
   return {
     components: [...containers, ...(options?.buttons ?? [])],
+    files: options?.files ?? [],
     flags: options?.ephemeral
       ? (MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral)
       : MessageFlags.IsComponentsV2,

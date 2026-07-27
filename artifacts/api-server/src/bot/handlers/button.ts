@@ -24,6 +24,7 @@ import { ticketStore } from "../ticketStore";
 import { sorteioStore, sorteioByChannel } from "../sorteioStore";
 import { buildSorteioComponents } from "../commands/sorteio";
 import { handleBancoButton } from "./banco";
+import { handleCassinoButton } from "./cassino";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 const RATING_CHANNEL_ID = "1512670969653887137";
@@ -307,6 +308,8 @@ export async function handleButton(interaction: ButtonInteraction) {
       await handleSorteioButton(interaction, action!, parts);
     } else if (ns === "banco") {
       await handleBancoButton(interaction, parts);
+    } else if (ns === "cassino") {
+      await handleCassinoButton(interaction, parts);
     } else {
       logger.warn({ customId: interaction.customId }, "Unknown button interaction");
     }

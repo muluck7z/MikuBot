@@ -130,8 +130,13 @@ export async function startBot() {
       (interaction.isButton() || interaction.isModalSubmit()) &&
       interaction.customId.startsWith("banco:");
 
+    // Interações do cassino também são públicas — qualquer membro pode jogar na sua própria mesa
+    const isCassinoInteraction =
+      (interaction.isButton() || interaction.isModalSubmit()) &&
+      interaction.customId.startsWith("cassino:");
+
     // Commands available to all members regardless of role
-    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "administrar-saldo"]);
+    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "administrar-saldo", "cassino"]);
     const isPublicCommand =
       interaction.isChatInputCommand() && PUBLIC_COMMANDS.has(interaction.commandName);
 
@@ -140,6 +145,7 @@ export async function startBot() {
       !isTicketInteraction &&
       !isSorteioEntrar &&
       !isBancoInteraction &&
+      !isCassinoInteraction &&
       (!member || !hasStaffAccess(member))
     ) {
       await replyAccessDenied(

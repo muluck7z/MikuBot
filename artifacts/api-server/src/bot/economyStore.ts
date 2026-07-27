@@ -54,11 +54,22 @@ export interface InvestmentPortfolio {
 // quantas variações recentes guardamos para exibir o histórico ao usuário
 const INVEST_HISTORY_LENGTH = 10;
 
+// ─── Configurações do cassino (Roleta Brazino 777) ─────────────────────────────
+
+export const ROLETA_NUMEROS = 15; // números de 1 a 15, em branco e em preto (30 posições)
+export type RoletaCor = "branco" | "preto";
+
+export interface CassinoState {
+  banca: number; // fichas depositadas na mesa (sobe a cada clique em "Apostar")
+  betPerRound: number; // valor apostado por rodada (definido pelo último "Apostar")
+}
+
 export interface UserEconomy {
   fichas: number;
   pendingInvites: number; // invites não convertidos
   loans: Loan[];
   investment: InvestmentPortfolio;
+  cassino: CassinoState;
   bankLocked: boolean;
   lockDebt: number; // dívida total no momento em que a conta foi fechada
   unlockPaid: number; // quanto já foi pago desde o bloqueio, rumo ao desbloqueio
@@ -107,6 +118,7 @@ function freshUser(): UserEconomy {
       lastChangePct: 0,
       history: [],
     },
+    cassino: { banca: 0, betPerRound: 0 },
     bankLocked: false,
     lockDebt: 0,
     unlockPaid: 0,
@@ -129,6 +141,7 @@ export function getUser(userId: string): UserEconomy {
   if (u.lockDebt === undefined) u.lockDebt = 0;
   if (u.unlockPaid === undefined) u.unlockPaid = 0;
   if (u.lastTransferAt === undefined) u.lastTransferAt = 0;
+  if (!u.cassino) u.cassino = { banca: 0, betPerRound: 0 };
   return u;
 }
 
@@ -525,4 +538,167 @@ export function adjustFichas(userId: string, amount: number): AdjustResult {
   const delta = user.fichas - before;
   saveData();
   return { ok: true, requested: amount, delta, newBalance: user.fichas };
+}
+
+// ─── Cassino Brazino 777 — Roleta ───────────────────────────────────────────────
+//
+// A roleta tem 30 posições: números de 1 a 15, cada um em branco ou em preto.
+// O jogador escolhe uma cor e um número da sorte antes de girar. Resultado:
+//   • Cor certa, número errado  → ganha o dobro do valor apostado na rodada.
+//   • Cor errada, número errado → perde o valor apostado na rodada.
+//   • Cor certa, número certo   → ganha 100x o valor apostado na rodada.
+//   • Cor errada, número certo  → perde 100x o valor apostado na rodada. Isso é
+//     descontado primeiro da banca, depois do saldo (fichas) e, se ainda faltar,
+//     vira uma dívida em nome do usuário (entra no sistema de empréstimos).
+
+/** Adiciona uma dívida "forçada" (sem juros) ao nome do usuário — ex: perda no cassino. */
+function addForcedDebt(user: UserEconomy, amount: number): void {
+  if (amount <= 0) return;
+  const now = Date.now();
+  const dueAt = now + LOAN_DUE_DAYS * DAY_MS;
+  user.loans.push({
+    id: `cassino-${now}-${Math.floor(Math.random() * 1000)}`,
+    amount,
+    total: amount,
+    takenAt: now,
+    dueAt,
+    lastAccrualAt: dueAt,
+    paid: false,
+  });
+}
+
+export type ApostarCassinoResult =
+  | { ok: true; added: number; banca: number; betPerRound: number }
+  | { ok: false; reason: "locked" | "insufficient" | "invalid_amount" };
+
+/** Move fichas da carteira para a banca do cassino e define o valor apostado por rodada. */
+export function apostarCassino(userId: string, valor: number): ApostarCassinoResult {
+  if (!Number.isFinite(valor) || valor < 1) return { ok: false, reason: "invalid_amount" };
+  const user = processAccount(userId);
+  if (user.bankLocked) return { ok: false, reason: "locked" };
+  if (user.fichas < valor) return { ok: false, reason: "insufficient" };
+
+  user.fichas -= valor;
+  user.cassino.banca += valor;
+  user.cassino.betPerRound = valor;
+  saveData();
+  return { ok: true, added: valor, banca: user.cassino.banca, betPerRound: user.cassino.betPerRound };
+}
+
+export type GirarRoletaResult =
+  | {
+      ok: true;
+      apostaCor: RoletaCor;
+      apostaNumero: number;
+      resultCor: RoletaCor;
+      resultNumero: number;
+      outcome: "cor" | "perde" | "jackpot" | "catastrofe";
+      betAmount: number;
+      bancaDelta: number; // variação líquida na banca (pode ser negativa)
+      fichasPerdidas: number; // quanto foi tirado da carteira (só no cenário catastrófico)
+      debtAdded: number; // dívida criada em nome do usuário (só no cenário catastrófico)
+      newBanca: number;
+    }
+  | { ok: false; reason: "locked" | "no_bet" | "invalid_input" };
+
+/** Gira a roleta usando o valor de aposta por rodada já definido (via apostarCassino). */
+export function girarRoleta(userId: string, cor: RoletaCor, numero: number): GirarRoletaResult {
+  if (cor !== "branco" && cor !== "preto") return { ok: false, reason: "invalid_input" };
+  if (!Number.isInteger(numero) || numero < 1 || numero > ROLETA_NUMEROS) {
+    return { ok: false, reason: "invalid_input" };
+  }
+
+  const user = processAccount(userId);
+  if (user.bankLocked) return { ok: false, reason: "locked" };
+
+  const cassino = user.cassino;
+  const betAmount = cassino.betPerRound;
+  if (betAmount <= 0 || cassino.banca < betAmount) {
+    return { ok: false, reason: "no_bet" };
+  }
+
+  const resultCor: RoletaCor = Math.random() < 0.5 ? "branco" : "preto";
+  const resultNumero = Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
+  const colorHit = resultCor === cor;
+  const numberHit = resultNumero === numero;
+
+  let bancaDelta = 0;
+  let fichasPerdidas = 0;
+  let debtAdded = 0;
+  let outcome: "cor" | "perde" | "jackpot" | "catastrofe";
+
+  if (colorHit && !numberHit) {
+    bancaDelta = betAmount * 2;
+    outcome = "cor";
+  } else if (!colorHit && !numberHit) {
+    bancaDelta = -betAmount;
+    outcome = "perde";
+  } else if (colorHit && numberHit) {
+    bancaDelta = betAmount * 100;
+    outcome = "jackpot";
+  } else {
+    // cor errada, número certo: perda de 100x — banca, depois carteira, depois dívida
+    const totalLoss = betAmount * 100;
+    outcome = "catastrofe";
+    const fromBanca = Math.min(cassino.banca, totalLoss);
+    bancaDelta = -fromBanca;
+    let remaining = totalLoss - fromBanca;
+
+    if (remaining > 0) {
+      const fromWallet = Math.min(user.fichas, remaining);
+      user.fichas -= fromWallet;
+      fichasPerdidas = fromWallet;
+      remaining -= fromWallet;
+    }
+    if (remaining > 0) {
+      addForcedDebt(user, remaining);
+      debtAdded = remaining;
+    }
+  }
+
+  cassino.banca = Math.max(0, cassino.banca + bancaDelta);
+  saveData();
+
+  return {
+    ok: true,
+    apostaCor: cor,
+    apostaNumero: numero,
+    resultCor,
+    resultNumero,
+    outcome,
+    betAmount,
+    bancaDelta,
+    fichasPerdidas,
+    debtAdded,
+    newBanca: cassino.banca,
+  };
+}
+
+export type SacarCassinoResult =
+  | { ok: true; amount: number; banca: number }
+  | { ok: false; reason: "invalid_amount" };
+
+/** Saca um valor da banca do cassino de volta para a carteira (fichas). */
+export function sacarCassino(userId: string, valor: number): SacarCassinoResult {
+  const user = processAccount(userId);
+  const cassino = user.cassino;
+  if (!Number.isFinite(valor) || valor < 1 || valor > cassino.banca) {
+    return { ok: false, reason: "invalid_amount" };
+  }
+  cassino.banca -= valor;
+  user.fichas += valor;
+  saveData();
+  return { ok: true, amount: valor, banca: cassino.banca };
+}
+
+/** Sai da mesa: devolve toda a banca restante para a carteira e encerra a sessão. */
+export function sairCassino(userId: string): { returned: number } {
+  const user = processAccount(userId);
+  const cassino = user.cassino;
+  const returned = cassino.banca;
+  user.fichas += returned;
+  cassino.banca = 0;
+  cassino.betPerRound = 0;
+  saveData();
+  return { returned };
 }

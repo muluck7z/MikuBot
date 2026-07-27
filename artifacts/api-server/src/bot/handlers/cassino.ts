@@ -1,0 +1,276 @@
+import {
+  type ButtonInteraction,
+  type ModalSubmitInteraction,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+} from "discord.js";
+import { errorContainer, successContainer, v2EphemeralReply } from "../v2/index";
+import { renderCassinoHome, renderRoleta } from "../cassinoViews";
+import {
+  apostarCassino,
+  girarRoleta,
+  sacarCassino,
+  sairCassino,
+  type RoletaCor,
+  ROLETA_NUMEROS,
+} from "../economyStore";
+
+function fmt(n: number): string {
+  return Math.round(n).toLocaleString("pt-BR");
+}
+
+/** Converte o texto digitado pelo usuário num inteiro positivo (aceita "50.000" ou "50000"). */
+function parseAmount(raw: string): number | null {
+  const cleaned = raw.trim().replace(/[.\s]/g, "");
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return null;
+  const rounded = Math.floor(n);
+  if (rounded < 1) return null;
+  return rounded;
+}
+
+function parseCor(raw: string): RoletaCor | null {
+  const cleaned = raw.trim().toLowerCase();
+  if (cleaned === "branco" || cleaned === "b") return "branco";
+  if (cleaned === "preto" || cleaned === "p") return "preto";
+  return null;
+}
+
+function parseNumero(raw: string): number | null {
+  const n = Number(raw.trim());
+  if (!Number.isInteger(n) || n < 1 || n > ROLETA_NUMEROS) return null;
+  return n;
+}
+
+async function toast(interaction: ButtonInteraction | ModalSubmitInteraction, description: string, ok: boolean) {
+  await interaction.followUp(
+    v2EphemeralReply([ok ? successContainer("Sucesso!", description) : errorContainer(description)])
+  );
+}
+
+export async function handleCassinoButton(interaction: ButtonInteraction, parts: string[]) {
+  // customId: cassino:<action>:<arg|_>:<ownerId>
+  const [, action, , ownerId] = parts;
+
+  if (!ownerId) return;
+  if (interaction.user.id !== ownerId) {
+    await interaction.reply(
+      v2EphemeralReply([errorContainer("Esta não é a sua mesa — use `/cassino` para abrir a sua.")])
+    );
+    return;
+  }
+
+  const userId = ownerId;
+
+  if (action === "roleta") {
+    await interaction.update(renderRoleta(userId) as never);
+    return;
+  }
+
+  if (action === "apostar") {
+    const modal = new ModalBuilder().setCustomId(`cassino:apostar_submit:_:${userId}`).setTitle("Apostar");
+    const input = new TextInputBuilder()
+      .setCustomId("valor")
+      .setLabel("Quanto quer apostar por rodada")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder("Ex: 100");
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (action === "girar") {
+    const modal = new ModalBuilder().setCustomId(`cassino:girar_submit:_:${userId}`).setTitle("Girar a Roleta");
+    const corInput = new TextInputBuilder()
+      .setCustomId("cor")
+      .setLabel("Sua cor (branco ou preto)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(6)
+      .setPlaceholder("branco ou preto");
+    const numeroInput = new TextInputBuilder()
+      .setCustomId("numero")
+      .setLabel(`Seu número da sorte (1 a ${ROLETA_NUMEROS})`)
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(2)
+      .setPlaceholder("Ex: 7");
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(corInput),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(numeroInput)
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (action === "sacar") {
+    const modal = new ModalBuilder().setCustomId(`cassino:sacar_submit:_:${userId}`).setTitle("Sacar da Banca");
+    const input = new TextInputBuilder()
+      .setCustomId("valor")
+      .setLabel("Quanto sacar da banca")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder("Ex: 100");
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (action === "sair") {
+    const result = sairCassino(userId);
+    await interaction.update(renderCassinoHome(userId) as never);
+    const msg =
+      result.returned > 0
+        ? `Você saiu da mesa e recebeu de volta **${fmt(result.returned)} fichas** na carteira.`
+        : "Você saiu da mesa.";
+    await toast(interaction, msg, true);
+    return;
+  }
+}
+
+export async function handleCassinoModal(interaction: ModalSubmitInteraction, action: string, args: string[]) {
+  // customId: cassino:<action>:_:<ownerId>
+  const userId = args[1];
+  if (!userId) return;
+  if (interaction.user.id !== userId) {
+    await interaction.reply(
+      v2EphemeralReply([errorContainer("Esta não é a sua mesa — use `/cassino` para abrir a sua.")])
+    );
+    return;
+  }
+
+  if (action === "apostar_submit") {
+    const raw = interaction.fields.getTextInputValue("valor");
+    const valor = parseAmount(raw);
+
+    if (valor === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido. Digite um número válido.")]));
+      return;
+    }
+
+    const result = apostarCassino(userId, valor);
+    await interaction.update(renderRoleta(userId) as never);
+
+    if (!result.ok) {
+      const reason =
+        result.reason === "locked"
+          ? "Sua conta está bloqueada. Pague suas dívidas em `/banco` antes de apostar."
+          : result.reason === "insufficient"
+            ? "Você não tem fichas suficientes para essa aposta."
+            : "Valor inválido.";
+      await toast(interaction, reason, false);
+      return;
+    }
+
+    await toast(
+      interaction,
+      `Você colocou **${fmt(result.added)} fichas** na banca. Aposta por rodada: **${fmt(result.betPerRound)} fichas**.`,
+      true
+    );
+    return;
+  }
+
+  if (action === "girar_submit") {
+    const corRaw = interaction.fields.getTextInputValue("cor");
+    const numeroRaw = interaction.fields.getTextInputValue("numero");
+    const cor = parseCor(corRaw);
+    const numero = parseNumero(numeroRaw);
+
+    if (!cor || numero === null) {
+      await interaction.reply(
+        v2EphemeralReply([
+          errorContainer(`Dados inválidos. Cor: "branco" ou "preto". Número: 1 a ${ROLETA_NUMEROS}.`),
+        ])
+      );
+      return;
+    }
+
+    const result = girarRoleta(userId, cor, numero);
+    await interaction.update(renderRoleta(userId) as never);
+
+    if (!result.ok) {
+      const reason =
+        result.reason === "locked"
+          ? "Sua conta está bloqueada. Pague suas dívidas em `/banco` antes de jogar."
+          : result.reason === "no_bet"
+            ? "Defina uma aposta por rodada primeiro, clicando em **Apostar**, e garanta que a banca cubra o valor."
+            : "Dados inválidos.";
+      await toast(interaction, reason, false);
+      return;
+    }
+
+    const resultLabel = `${result.resultCor === "branco" ? "⚪ Branco" : "⚫ Preto"} **${result.resultNumero}**`;
+    const suaAposta = `${result.apostaCor === "branco" ? "⚪ Branco" : "⚫ Preto"} **${result.apostaNumero}**`;
+
+    let msg: string;
+    let ok: boolean;
+    if (result.outcome === "jackpot") {
+      msg = [
+        `🎉 **JACKPOT!** A roleta parou em ${resultLabel} — igualzinho à sua aposta (${suaAposta})!`,
+        `Você ganhou **${fmt(result.bancaDelta)} fichas**! Banca atual: **${fmt(result.newBanca)} fichas**.`,
+      ].join("\n");
+      ok = true;
+    } else if (result.outcome === "cor") {
+      msg = [
+        `A roleta parou em ${resultLabel}. Sua cor bateu (aposta: ${suaAposta})!`,
+        `Você ganhou **${fmt(result.bancaDelta)} fichas**! Banca atual: **${fmt(result.newBanca)} fichas**.`,
+      ].join("\n");
+      ok = true;
+    } else if (result.outcome === "perde") {
+      msg = [
+        `A roleta parou em ${resultLabel}. Não foi dessa vez (aposta: ${suaAposta}).`,
+        `Você perdeu **${fmt(Math.abs(result.bancaDelta))} fichas**. Banca atual: **${fmt(result.newBanca)} fichas**.`,
+      ].join("\n");
+      ok = false;
+    } else {
+      const lines = [
+        `💀 **Que azar!** A roleta parou em ${resultLabel} — mesmo número, cor errada (aposta: ${suaAposta}).`,
+        `Perda total: **${fmt(result.betAmount * 100)} fichas**, descontada primeiro da sua banca.`,
+      ];
+      if (result.fichasPerdidas > 0) {
+        lines.push(`O restante foi descontado da sua carteira: **${fmt(result.fichasPerdidas)} fichas**.`);
+      }
+      if (result.debtAdded > 0) {
+        lines.push(
+          `⚠️ Ainda faltou cobrir **${fmt(result.debtAdded)} fichas** — isso virou uma **dívida em seu nome** no banco.`
+        );
+      }
+      lines.push(`Banca atual: **${fmt(result.newBanca)} fichas**.`);
+      msg = lines.join("\n");
+      ok = false;
+    }
+
+    await toast(interaction, msg, ok);
+    return;
+  }
+
+  if (action === "sacar_submit") {
+    const raw = interaction.fields.getTextInputValue("valor");
+    const valor = parseAmount(raw);
+
+    if (valor === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido. Digite um número válido.")]));
+      return;
+    }
+
+    const result = sacarCassino(userId, valor);
+    await interaction.update(renderRoleta(userId) as never);
+
+    if (!result.ok) {
+      await toast(interaction, "Valor inválido — verifique se ele não passa do que está na banca.", false);
+      return;
+    }
+
+    await toast(
+      interaction,
+      `Você sacou **${fmt(result.amount)} fichas** para a carteira. Banca restante: **${fmt(result.banca)} fichas**.`,
+      true
+    );
+    return;
+  }
+}
