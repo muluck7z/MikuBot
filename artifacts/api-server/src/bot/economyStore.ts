@@ -8,7 +8,7 @@ const DATA_FILE = dataFilePath("economy_data.json");
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-export const INVEST_TICK_MS = 10 * 60 * 1000; // mercado de investimentos atualiza a cada 10 minutos
+export const INVEST_TICK_MS = 1 * 60 * 1000; // mercado de investimentos atualiza a cada 1 minuto
 
 // ─── Configurações do banco ────────────────────────────────────────────────────
 
