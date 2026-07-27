@@ -1,24 +1,29 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction } from "discord.js";
 import { type BotCommand } from "../index";
 import { successContainer, errorContainer, v2Reply, v2EphemeralReply } from "../v2/index";
-import { giveFichas } from "../economyStore";
+import { adjustFichas } from "../economyStore";
 
 // Único usuário autorizado a usar este comando, independente de cargos.
 const AUTHORIZED_USER_ID = "1503230923980800150";
 
 function fmt(n: number): string {
-  return Math.round(n).toLocaleString("pt-BR");
+  return Math.round(Math.abs(n)).toLocaleString("pt-BR");
 }
 
 export const administrarSaldoCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("administrar-saldo")
-    .setDescription("Adiciona ou remove fichas de um usuário (uso restrito)")
+    .setDescription("Adiciona ou remove fichas do saldo de um usuário (uso restrito)")
     .addUserOption((opt) =>
-      opt.setName("usuario").setDescription("Usuário alvo").setRequired(true)
+      opt.setName("usuario").setDescription("De quem é o saldo a ajustar").setRequired(true)
     )
     .addIntegerOption((opt) =>
-      opt.setName("valor").setDescription("Valor a adicionar (positivo) ou remover (negativo)").setRequired(true)
+      opt
+        .setName("valor")
+        .setDescription("Quantas fichas ajustar (use - para remover, ex: -500)")
+        .setMinValue(-1000000)
+        .setMaxValue(1000000)
+        .setRequired(true)
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
@@ -33,27 +38,26 @@ export const administrarSaldoCommand: BotCommand = {
     const valor = interaction.options.getInteger("valor", true);
 
     if (target.bot) {
-      await interaction.reply(v2EphemeralReply([errorContainer("Você não pode administrar o saldo de um bot.")]));
+      await interaction.reply(v2EphemeralReply([errorContainer("Você não pode ajustar o saldo de um bot.")]));
       return;
     }
 
-    const result = giveFichas(target.id, valor);
+    const result = adjustFichas(target.id, valor);
 
     if (!result.ok) {
-      await interaction.reply(v2EphemeralReply([errorContainer("Ocorreu um erro ao processar o valor.")]));
+      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido. Use um número diferente de 0.")]));
       return;
     }
 
-    const isAdding = valor >= 0;
-    const title = isAdding ? "Saldo adicionado!" : "Saldo removido!";
-    const actionText = isAdding ? "deu" : "removeu";
-    const notifyText = isAdding ? "recebeu" : "perdeu";
+    const isRemoval = result.delta < 0;
 
     await interaction.reply(
       v2Reply([
         successContainer(
-          title,
-          `Você ${actionText} **${fmt(Math.abs(valor))} fichas** para <@${target.id}>.\nSaldo atual dele(a): **${fmt(result.newBalance)} fichas**.`
+          isRemoval ? "Saldo removido!" : "Fichas concedidas!",
+          isRemoval
+            ? `Você removeu **${fmt(result.delta)} fichas** de <@${target.id}>.\nSaldo atual dele(a): **${fmt(result.newBalance)} fichas**.`
+            : `Você deu **${fmt(result.delta)} fichas** para <@${target.id}>.\nSaldo atual dele(a): **${fmt(result.newBalance)} fichas**.`
         ),
       ])
     );
@@ -62,8 +66,10 @@ export const administrarSaldoCommand: BotCommand = {
       .send(
         v2Reply([
           successContainer(
-            title,
-            `Você ${notifyText} **${fmt(Math.abs(valor))} fichas** do banco.`
+            isRemoval ? "Seu saldo foi ajustado" : "Você recebeu fichas!",
+            isRemoval
+              ? `O banco removeu **${fmt(result.delta)} fichas** do seu saldo.`
+              : `Você recebeu **${fmt(result.delta)} fichas** do banco.`
           ),
         ])
       )

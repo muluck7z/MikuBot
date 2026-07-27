@@ -23,7 +23,7 @@ import { sorteioCommand } from "./commands/sorteio";
 import { restorecordSetupCommand } from "./commands/restorecord_setup";
 import { bancoCommand } from "./commands/banco";
 import { pixCommand } from "./commands/pix";
-import { darDinheiroCommand } from "./commands/darDinheiro";
+import { administrarSaldoCommand } from "./commands/administrarSaldo";
 import { syncInvitesCommand } from "./commands/syncinvites";
 import { deployCommandsMerged, fetchRegisteredCommands } from "./deploy";
 import { logger } from "../lib/logger";
@@ -52,7 +52,7 @@ const allCommands: BotCommand[] = [
   restorecordSetupCommand,
   bancoCommand,
   pixCommand,
-  darDinheiroCommand,
+  administrarSaldoCommand,
   syncInvitesCommand,
 ];
 

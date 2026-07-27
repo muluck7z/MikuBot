@@ -504,17 +504,25 @@ export function transferFichas(fromUserId: string, toUserId: string, amount: num
   return { ok: true, amount };
 }
 
-// ─── Concessão administrativa de fichas ────────────────────────────────────────
+// ─── Administração de saldo ────────────────────────────────────────────────────
 
-export type GiveResult =
-  | { ok: true; amount: number; newBalance: number }
+export type AdjustResult =
+  | { ok: true; requested: number; delta: number; newBalance: number }
   | { ok: false; reason: "invalid_amount" };
 
-/** Dá fichas a um usuário "do nada" (sem debitar de ninguém) — uso restrito. */
-export function giveFichas(userId: string, amount: number): GiveResult {
+/**
+ * Ajusta o saldo de um usuário "do nada" (sem debitar/creditar de ninguém) —
+ * uso restrito. `amount` positivo adiciona fichas, negativo remove. O saldo
+ * nunca fica abaixo de 0 — se `amount` negativo for maior que o saldo atual,
+ * o saldo só é zerado (o `delta` retornado reflete o que de fato foi
+ * removido, que pode ser menor em valor absoluto do que o `amount` pedido).
+ */
+export function adjustFichas(userId: string, amount: number): AdjustResult {
   if (!Number.isFinite(amount) || amount === 0) return { ok: false, reason: "invalid_amount" };
   const user = processAccount(userId);
-  user.fichas += amount;
+  const before = user.fichas;
+  user.fichas = Math.max(0, user.fichas + amount);
+  const delta = user.fichas - before;
   saveData();
-  return { ok: true, amount, newBalance: user.fichas };
+  return { ok: true, requested: amount, delta, newBalance: user.fichas };
 }
