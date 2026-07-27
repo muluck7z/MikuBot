@@ -14,7 +14,7 @@ export const CONVERT_AMOUNTS = [10, 50, 100, 300] as const;
 export const INVEST_AMOUNTS = [20, 50, 100, 300] as const;
 
 export const INVITE_VALUE = 200; // fichas por invite convertido
-export const LOAN_INTEREST = 0.2; // 20% de juros ao pegar o empréstimo
+export const LOAN_INTEREST = 0.3; // 30% de juros ao pegar o empréstimo
 export const LOAN_DUE_DAYS = 10; // prazo original para pagar
 export const LOAN_LOCK_DAYS = 20; // dias (desde a retirada) até a conta ser fechada
 export const LOAN_LATE_DAILY_RATE = 0.05; // juros extra por dia de atraso (após o vencimento)
@@ -171,10 +171,11 @@ export function processAccount(userId: string): UserEconomy {
 
 // ─── Invites ──────────────────────────────────────────────────────────────────
 
-/** Adiciona 1 invite pendente para o usuário (chamado quando alguém entra via link dele). */
-export function addPendingInvite(userId: string): void {
+/** Adiciona invite(s) pendente(s) para o usuário (chamado quando alguém entra via link dele). */
+export function addPendingInvite(userId: string, amount: number = 1): void {
+  if (amount <= 0) return;
   const user = getUser(userId);
-  user.pendingInvites++;
+  user.pendingInvites += amount;
   saveData();
 }
 

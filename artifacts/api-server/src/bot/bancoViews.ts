@@ -19,6 +19,7 @@ import {
   LOAN_INTEREST,
   LOAN_DUE_DAYS,
   LOAN_LOCK_DAYS,
+  LOAN_LATE_DAILY_RATE,
   UNLOCK_THRESHOLD,
   MAX_ACTIVE_LOANS,
 } from "./economyStore";
@@ -26,6 +27,17 @@ import {
 function fmt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
 }
+
+// ─── Emojis customizados usados nos cards do banco ─────────────────────────────
+const E = {
+  banco: "<:comunidade2:1531072981688914103>",
+  poupanca: "<:em:1531074006978138292>",
+  suporte: "<:suporte:1531074502790873171>",
+  ticketUser: "<:ticket_user:1530817417842921492>",
+  termos: "<:svsino:1530817949340926025>",
+  clock: "<:clock:1508157710422507663>",
+  announce: "<:ticket_announce:1530817537007161374>",
+};
 
 /** Monta o customId de um botão do banco, sempre com o dono embutido no final. */
 function bid(action: string, userId: string, arg?: string | number): string {
@@ -46,16 +58,17 @@ export function renderHome(userId: string) {
   const user = processAccount(userId);
 
   const lines = [
-    `💰 **Fichas:** ${fmt(user.fichas)}`,
-    user.bankLocked
-      ? `🔒 **Conta bloqueada** — dívida: ${fmt(totalDebt(user))} fichas`
-      : `✅ Conta em dia`,
+    "Nosso banco oferece oportunidades exclusivas aos nossos clientes! Vocês podem pedir empréstimos, Investir e muito mais!",
   ];
 
+  if (user.bankLocked) {
+    lines.push("", `🔒 **Sua conta está bloqueada** — dívida: ${fmt(totalDebt(user))} fichas`);
+  }
+
   const container = infoContainer({
-    title: "🏦 Banco do Servidor",
+    title: `${E.banco} Banco Central`,
     description: lines.join("\n"),
-    accentColor: COLORS.info,
+    accentColor: user.bankLocked ? COLORS.danger : COLORS.info,
   });
 
   const buttons = row(
@@ -78,38 +91,44 @@ export function renderEmprestimos(userId: string) {
 
   const lines: string[] = [];
 
+  lines.push(
+    `${E.termos} **Termos de empréstimos:**`,
+    `> Ao pegar um empréstimo você deve retornar ao banco ${Math.round(
+      LOAN_INTEREST * 100
+    )}% a mais do valor que você pegou com o banco e tendo que pagar em até ${LOAN_DUE_DAYS} dias sem juros. Caso você não consiga pagar a tempo, os juros iram ser de ${Math.round(
+      LOAN_LATE_DAILY_RATE * 100
+    )}% ao dia até chegar ao dia ${LOAN_LOCK_DAYS} onde iremos bloquear sua conta e seu saldo ficará sob custódia de nosso banco até você pagar ${Math.round(
+      UNLOCK_THRESHOLD * 100
+    )}% do valor que deve.`,
+    ""
+  );
+
   if (user.bankLocked) {
     lines.push(
       "🔒 **Sua conta está bloqueada!**",
-      `Você demorou demais para pagar um empréstimo e o banco confiscou suas fichas.`,
-      `**Dívida total:** ${fmt(debt)} fichas`,
-      `**Pago até agora:** ${fmt(user.unlockPaid)} / ${fmt(Math.ceil(user.lockDebt * UNLOCK_THRESHOLD))} fichas necessários (${Math.round(UNLOCK_THRESHOLD * 100)}% da dívida travada)`,
+      "Você demorou demais para pagar um empréstimo e o banco confiscou suas fichas.",
+      `**Pago até agora:** ${fmt(user.unlockPaid)} / ${fmt(Math.ceil(user.lockDebt * UNLOCK_THRESHOLD))} fichas necessários`,
       "",
-      "📩 **O único jeito de conseguir fichas agora é convidar novos membros e converter os invites em Conversão.**",
-      "Assim que pagar pelo menos 30% do que devia no momento do bloqueio, sua conta é desbloqueada."
+      "📩 O único jeito de conseguir fichas agora é convidar novos membros e converter os invites em Conversão.",
+      ""
     );
-  } else if (loans.length === 0) {
-    lines.push(
-      "Você não tem empréstimos ativos.",
-      `Peça um empréstimo abaixo: **${Math.round(LOAN_INTEREST * 100)}% de juros** e **${LOAN_DUE_DAYS} dias** de prazo.`,
-      `Se atrasar, os juros aumentam a cada dia e, após ${LOAN_LOCK_DAYS} dias sem pagar, sua conta é fechada e todas as fichas são confiscadas.`
-    );
+  }
+
+  lines.push(`${E.ticketUser} **Empréstimos pendentes (${loans.length}):**`);
+  if (loans.length === 0) {
+    lines.push("> Nenhum empréstimo pendente no momento.");
   } else {
-    lines.push(`📋 **Empréstimos ativos (${loans.length}/${MAX_ACTIVE_LOANS}):**`);
     for (const loan of loans) {
       const overdue = loan.dueAt < now;
       const dueStr = `<t:${Math.floor(loan.dueAt / 1000)}:R>`;
-      lines.push(
-        `• \`${loan.id}\` — **${fmt(loan.total)} fichas** a devolver ${
-          overdue ? "⚠️ **ATRASADO** (juros aumentando)" : `(vence ${dueStr})`
-        }`
-      );
+      lines.push(`> ${fmt(loan.total)} fichas a pagar em até ${dueStr}${overdue ? " ⚠️ **ATRASADO**" : ""}`);
     }
-    lines.push("", `**Dívida total:** ${fmt(debt)} fichas`);
   }
 
+  lines.push("", `${E.clock} **Dívida pendente:** ${fmt(debt)} fichas`);
+
   const container = infoContainer({
-    title: "💸 Empréstimos",
+    title: `${E.suporte} Empréstimos`,
     description: lines.join("\n"),
     accentColor: user.bankLocked ? COLORS.danger : COLORS.info,
   });
@@ -142,14 +161,14 @@ export function renderConversao(userId: string) {
   const user = processAccount(userId);
 
   const lines = [
-    `📩 **Invites pendentes:** ${user.pendingInvites}`,
-    `💱 **Cada invite vale ${fmt(INVITE_VALUE)} fichas.**`,
+    `${E.poupanca} **Invites pendentes:** ${user.pendingInvites}`,
+    `${E.announce} **Cada invite vale ${fmt(INVITE_VALUE)} fichas**`,
     "",
     "Convide novos membros para o servidor com seu link de convite e depois converta os invites aqui.",
   ];
 
   const container = infoContainer({
-    title: "🔄 Conversão de Invites",
+    title: `${E.banco} Conversão de Invites`,
     description: lines.join("\n"),
     accentColor: COLORS.info,
   });
@@ -173,22 +192,21 @@ export function renderCarteira(userId: string) {
   const now = Date.now();
 
   const lines: string[] = [
-    `💰 **Fichas:** ${fmt(user.fichas)}`,
-    `📩 **Invites pendentes:** ${user.pendingInvites}`,
-    user.bankLocked ? "🔒 **Conta bloqueada**" : "✅ Conta em dia",
+    `${E.ticketUser} **Proprietário:** <@${userId}>`,
+    `${E.poupanca} **poupança:** ${fmt(user.fichas)}`,
+    `${E.suporte} **Conta em dia:** ${user.bankLocked ? "Não" : "Sim"}`,
+    "",
+    `${E.poupanca} **Dívidas pendentes (${loans.length})**`,
   ];
 
-  if (loans.length > 0) {
-    lines.push(`\n📋 **Dívidas ativas (${loans.length}):**`);
+  if (loans.length === 0) {
+    lines.push("* Nenhuma dívida pendente");
+  } else {
     for (const loan of loans) {
       const overdue = loan.dueAt < now;
       const dueStr = `<t:${Math.floor(loan.dueAt / 1000)}:R>`;
-      lines.push(
-        `• **${fmt(loan.total)} fichas** ${overdue ? "⚠️ **ATRASADO**" : `(vence ${dueStr})`}`
-      );
+      lines.push(`* ${fmt(loan.total)} fichas, tempo para pagamento ${dueStr}${overdue ? " ⚠️ **ATRASADO**" : ""}`);
     }
-  } else {
-    lines.push("\n✅ **Sem dívidas ativas**");
   }
 
   const inv = user.investment;
@@ -201,7 +219,7 @@ export function renderCarteira(userId: string) {
   }
 
   const container = infoContainer({
-    title: "💳 Sua Carteira",
+    title: `${E.banco} Sua Carteira`,
     description: lines.join("\n"),
     accentColor: COLORS.info,
   });

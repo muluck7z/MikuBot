@@ -22,6 +22,7 @@ import { reactionRoleCommand } from "./commands/reactionrole";
 import { sorteioCommand } from "./commands/sorteio";
 import { restorecordSetupCommand } from "./commands/restorecord_setup";
 import { bancoCommand } from "./commands/banco";
+import { syncInvitesCommand } from "./commands/syncinvites";
 import { deployCommandsMerged, fetchRegisteredCommands } from "./deploy";
 import { logger } from "../lib/logger";
 
@@ -48,6 +49,7 @@ const allCommands: BotCommand[] = [
   sorteioCommand,
   restorecordSetupCommand,
   bancoCommand,
+  syncInvitesCommand,
 ];
 
 /** Nomes dos comandos que pertencem ao MikuBot. */
