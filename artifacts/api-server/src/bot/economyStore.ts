@@ -42,7 +42,11 @@ export interface InvestmentPortfolio {
   balance: number; // valor atual (pode ficar negativo)
   lastUpdate: number; // timestamp da última atualização de mercado
   lastChangePct: number; // última variação percentual aplicada (para exibição)
+  history: number[]; // últimas variações percentuais aplicadas (mais recente por último)
 }
+
+// quantas variações recentes guardamos para exibir o histórico ao usuário
+const INVEST_HISTORY_LENGTH = 10;
 
 export interface UserEconomy {
   fichas: number;
@@ -94,6 +98,7 @@ function freshUser(): UserEconomy {
       balance: 0,
       lastUpdate: Date.now(),
       lastChangePct: 0,
+      history: [],
     },
     bankLocked: false,
     lockDebt: 0,
@@ -109,8 +114,9 @@ export function getUser(userId: string): UserEconomy {
   // Compatibilidade com dados antigos (retrocompatibilidade defensiva)
   const u = _data[userId]!;
   if (!u.investment) {
-    u.investment = { active: false, deposited: 0, balance: 0, lastUpdate: Date.now(), lastChangePct: 0 };
+    u.investment = { active: false, deposited: 0, balance: 0, lastUpdate: Date.now(), lastChangePct: 0, history: [] };
   }
+  if (!u.investment.history) u.investment.history = [];
   if (u.bankLocked === undefined) u.bankLocked = false;
   if (u.lockDebt === undefined) u.lockDebt = 0;
   if (u.unlockPaid === undefined) u.unlockPaid = 0;
@@ -325,6 +331,10 @@ function updateInvestment(user: UserEconomy): void {
     lastPct = marketPctForBucket(b);
     const delta = Math.round(inv.deposited * lastPct);
     inv.balance += delta;
+    inv.history.push(lastPct);
+  }
+  if (inv.history.length > INVEST_HISTORY_LENGTH) {
+    inv.history = inv.history.slice(inv.history.length - INVEST_HISTORY_LENGTH);
   }
   inv.lastChangePct = lastPct;
   inv.lastUpdate = (lastBucket + ticks) * INVEST_TICK_MS;
@@ -349,6 +359,7 @@ export function investFichas(userId: string, amount: number): InvestResult {
     inv.balance = amount;
     inv.lastUpdate = Date.now();
     inv.lastChangePct = 0;
+    inv.history = [];
   } else {
     inv.deposited += amount;
     inv.balance += amount;
@@ -373,6 +384,47 @@ export function withdrawInvestment(userId: string): WithdrawResult {
   inv.deposited = 0;
   inv.balance = 0;
   inv.lastChangePct = 0;
+  inv.history = [];
   saveData();
   return { ok: true, amount };
+}
+
+export type WithdrawPartialResult =
+  | { ok: true; amount: number; closed: boolean; remainingBalance: number }
+  | { ok: false; reason: "not_active" | "negative_balance" | "invalid_amount" };
+
+/**
+ * Saca um valor específico do investimento (escolhido pelo usuário no modal).
+ * Se o valor pedido for maior ou igual ao saldo, encerra o investimento
+ * (mesmo comportamento de withdrawInvestment). Caso contrário, saca só a
+ * parte pedida e reduz `deposited` na mesma proporção, para manter a
+ * volatilidade futura consistente com o que ainda está investido.
+ * Não é possível sacar parcialmente quando o saldo já está negativo — nesse
+ * caso só dá pra encerrar o investimento por completo (ver withdrawInvestment).
+ */
+export function withdrawPartial(userId: string, amount: number): WithdrawPartialResult {
+  const user = processAccount(userId);
+  const inv = user.investment;
+  if (!inv.active) return { ok: false, reason: "not_active" };
+  if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "invalid_amount" };
+  if (inv.balance <= 0) return { ok: false, reason: "negative_balance" };
+
+  if (amount >= inv.balance) {
+    const withdrawn = inv.balance;
+    user.fichas += withdrawn;
+    inv.active = false;
+    inv.deposited = 0;
+    inv.balance = 0;
+    inv.lastChangePct = 0;
+    inv.history = [];
+    saveData();
+    return { ok: true, amount: withdrawn, closed: true, remainingBalance: 0 };
+  }
+
+  const proportion = amount / inv.balance;
+  inv.deposited = Math.round(inv.deposited * (1 - proportion));
+  inv.balance -= amount;
+  user.fichas += amount;
+  saveData();
+  return { ok: true, amount, closed: false, remainingBalance: inv.balance };
 }

@@ -246,6 +246,13 @@ export function renderInvestir(userId: string) {
       `Tempo para a variação: <t:${Math.floor(nextTick / 1000)}:R>`
     );
 
+    if (inv.history.length > 0) {
+      const historyStr = inv.history
+        .map((pct) => `${pct >= 0 ? "+" : ""}${Math.round(pct * 100)}%`)
+        .join("  ");
+      lines.push("", `**Histórico recente:** ${historyStr}`);
+    }
+
     if (inv.balance < 0) {
       lines.push(
         "",
@@ -254,7 +261,7 @@ export function renderInvestir(userId: string) {
     }
 
     buttons.push(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1));
-    buttons.push(secondaryButton(bid("inv", userId, "sacar"), "Sacar"));
+    buttons.push(secondaryButton(bid("sac_open", userId), "Sacar"));
     buttons.push(secondaryButton(bid("home", userId), "Voltar"));
   }
 

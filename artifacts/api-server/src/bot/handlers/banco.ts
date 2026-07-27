@@ -22,6 +22,7 @@ import {
   convertInvites,
   investFichas,
   withdrawInvestment,
+  withdrawPartial,
   LOAN_DUE_DAYS,
   MAX_LOAN_AMOUNT,
 } from "../economyStore";
@@ -123,6 +124,43 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
     await interaction.showModal(modal);
     return;
   }
+  if (action === "sac_open") {
+    const user = processAccount(userId);
+    const inv = user.investment;
+
+    if (!inv.active) {
+      await interaction.reply(
+        v2EphemeralReply([errorContainer("Você não tem nenhum investimento ativo.")])
+      );
+      return;
+    }
+
+    if (inv.balance <= 0) {
+      // saldo negativo/zerado: não dá pra sacar parte, só encerrar tudo
+      const result = withdrawInvestment(userId);
+      await interaction.update(renderInvestir(userId) as never);
+      if (result.ok) {
+        const msg =
+          result.amount >= 0
+            ? `Você sacou **${fmt(result.amount)} fichas** do seu investimento.`
+            : `Seu investimento fechou negativo. Você ficou devendo **${fmt(Math.abs(result.amount))} fichas**.`;
+        await toast(interaction, msg, result.amount >= 0);
+      }
+      return;
+    }
+
+    const modal = new ModalBuilder().setCustomId(`banco:sac_submit:_:${userId}`).setTitle("Sacar Investimento");
+    const input = new TextInputBuilder()
+      .setCustomId("sac_amount")
+      .setLabel(`Quanto sacar (disponível: ${fmt(inv.balance)})`)
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder(`Ex: ${fmt(inv.balance)}`);
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
 
   // ── Empréstimos ────────────────────────────────────────────────────────────
   if (action === "loan") {
@@ -165,26 +203,6 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
     return;
   }
 
-  // ── Investir ───────────────────────────────────────────────────────────────
-  if (action === "inv") {
-    if (arg === "sacar") {
-      const result = withdrawInvestment(userId);
-      await interaction.update(renderInvestir(userId) as never);
-
-      if (!result.ok) {
-        await toast(interaction, "Você não tem nenhum investimento ativo.", false);
-        return;
-      }
-
-      const msg =
-        result.amount >= 0
-          ? `Você sacou **${fmt(result.amount)} fichas** do seu investimento.`
-          : `Seu investimento fechou negativo. Você ficou devendo **${fmt(Math.abs(result.amount))} fichas**.`;
-      await toast(interaction, msg, result.amount >= 0);
-      return;
-    }
-    return;
-  }
 }
 
 export async function handleBancoModal(interaction: ModalSubmitInteraction, action: string, args: string[]) {
@@ -291,6 +309,40 @@ export async function handleBancoModal(interaction: ModalSubmitInteraction, acti
     }
 
     await toast(interaction, `Você investiu **${fmt(amount)} fichas**.`, true);
+    return;
+  }
+
+  if (action === "sac_submit") {
+    const user = processAccount(userId);
+    const inv = user.investment;
+    const raw = interaction.fields.getTextInputValue("sac_amount");
+    const amount = parseAmount(raw);
+
+    if (amount === null) {
+      await interaction.reply(
+        v2EphemeralReply([errorContainer("Valor inválido. Digite um número válido.")])
+      );
+      return;
+    }
+
+    const result = withdrawPartial(userId, amount);
+    await interaction.update(renderInvestir(userId) as never);
+
+    if (!result.ok) {
+      const reason =
+        result.reason === "not_active"
+          ? "Você não tem nenhum investimento ativo."
+          : result.reason === "negative_balance"
+            ? "Seu investimento está negativo — encerre-o pelo botão Sacar para quitar."
+            : `Valor inválido. Você tem ${fmt(inv.balance)} ficha(s) disponível(is) para saque.`;
+      await toast(interaction, reason, false);
+      return;
+    }
+
+    const msg = result.closed
+      ? `Você sacou **${fmt(result.amount)} fichas** e encerrou o investimento.`
+      : `Você sacou **${fmt(result.amount)} fichas**. Saldo restante investido: **${fmt(result.remainingBalance)} fichas**.`;
+    await toast(interaction, msg, true);
     return;
   }
 }
