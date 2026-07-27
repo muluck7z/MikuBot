@@ -304,10 +304,24 @@ function seededRandom(seed: number): number {
 /** Variação do mercado para um "bucket" de 10 minutos específico — igual para todos. */
 function marketPctForBucket(bucket: number): number {
   const r1 = seededRandom(bucket);
-  if (r1 < 0.4) return 0.1; // subiu 10%
-  if (r1 < 0.8) return -0.1; // caiu 10%
-  const r2 = seededRandom(bucket ^ 0x5bd1e995); // segunda amostra, decorrelacionada
-  return r2 * 0.4 - 0.2; // aleatório entre -20% e +20%
+  // Proporções pedidas eram 35 / 35 / 25 / 15 (somam 110) — normalizadas para somar 100%:
+  // ~31.82% / ~31.82% / ~22.73% / ~13.64%
+  if (r1 < 0.318182) return 0.1; // subiu 10%
+  if (r1 < 0.636364) return -0.1; // caiu 10%
+
+  const r2 = seededRandom(bucket ^ 0x5bd1e995); // magnitude, decorrelacionada
+  const r3 = seededRandom(bucket ^ 0x27d4eb2f); // sinal, decorrelacionada
+  const sign = r3 < 0.5 ? -1 : 1;
+
+  if (r1 < 0.863636) {
+    // variação entre 20% e 50%, positiva ou negativa
+    const magnitude = 0.2 + r2 * 0.3;
+    return sign * magnitude;
+  }
+
+  // variação entre 60% e 100%, positiva ou negativa
+  const magnitude = 0.6 + r2 * 0.4;
+  return sign * magnitude;
 }
 
 /** Simula as variações de mercado (globais) que aconteceram desde a última atualização. */

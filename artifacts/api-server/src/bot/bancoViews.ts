@@ -230,7 +230,7 @@ export function renderInvestir(userId: string) {
   } else if (!inv.active) {
     lines.push(
       "Você não tem nenhum investimento ativo.",
-      "Escolha um valor para começar. O valor investido sobe ou desce a cada 10 minutos (+10%, -10%, ou uma variação aleatória) — o mercado é o mesmo para todo mundo.",
+      "Escolha um valor para começar. O valor investido sobe ou desce a cada 10 minutos (+10%, -10%, uma variação entre 20% e 50%, ou mais raramente uma variação entre 60% e 100% — pra cima ou pra baixo) — o mercado é o mesmo para todo mundo.",
       "Se o valor chegar a zero e você não sacar, ele pode continuar caindo e você fica devendo fichas."
     );
     buttons.push(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1));
