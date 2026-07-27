@@ -65,10 +65,13 @@ export function renderRoleta(userId: string) {
     ];
 
     if (cassino.lastResult) {
-      const { cor, numero, won, amount } = cassino.lastResult;
+      const { cor, numero, won, amount, debtAdded } = cassino.lastResult;
       const verbo = won ? "ganhou" : "perdeu";
       lines.push("");
       lines.push(`${E.announce} (${cor};${numero}), você ${verbo} ${fmt(amount)} fichas`);
+      if (debtAdded && debtAdded > 0) {
+        lines.push(`⚠️ Isso gerou uma dívida de ${fmt(debtAdded)} fichas em seu nome.`);
+      }
     }
   } else {
     // Ainda não depositou — mostra a explicação completa do jogo.

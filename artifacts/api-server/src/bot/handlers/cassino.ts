@@ -244,48 +244,7 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
       return;
     }
 
-    const resultLabel = `${result.resultCor === "branco" ? "⚪ Branco" : "⚫ Preto"} **${result.resultNumero}**`;
-    const suaAposta = `${result.apostaCor === "branco" ? "⚪ Branco" : "⚫ Preto"} **${result.apostaNumero}**`;
-
-    let msg: string;
-    let ok: boolean;
-    if (result.outcome === "jackpot") {
-      msg = [
-        `🎉 **JACKPOT!** A roleta parou em ${resultLabel} — igualzinho à sua aposta (${suaAposta})!`,
-        `Você ganhou **${fmt(result.bancaDelta)} fichas**! Banca atual: **${fmt(result.newBanca)} fichas**.`,
-      ].join("\n");
-      ok = true;
-    } else if (result.outcome === "cor") {
-      msg = [
-        `A roleta parou em ${resultLabel}. Sua cor bateu (aposta: ${suaAposta})!`,
-        `Você ganhou **${fmt(result.bancaDelta)} fichas**! Banca atual: **${fmt(result.newBanca)} fichas**.`,
-      ].join("\n");
-      ok = true;
-    } else if (result.outcome === "perde") {
-      msg = [
-        `A roleta parou em ${resultLabel}. Não foi dessa vez (aposta: ${suaAposta}).`,
-        `Você perdeu **${fmt(Math.abs(result.bancaDelta))} fichas**. Banca atual: **${fmt(result.newBanca)} fichas**.`,
-      ].join("\n");
-      ok = false;
-    } else {
-      const lines = [
-        `💀 **Que azar!** A roleta parou em ${resultLabel} — mesmo número, cor errada (aposta: ${suaAposta}).`,
-        `Perda total: **${fmt(result.betAmount * 100)} fichas**, descontada primeiro da sua banca.`,
-      ];
-      if (result.fichasPerdidas > 0) {
-        lines.push(`O restante foi descontado da sua carteira: **${fmt(result.fichasPerdidas)} fichas**.`);
-      }
-      if (result.debtAdded > 0) {
-        lines.push(
-          `⚠️ Ainda faltou cobrir **${fmt(result.debtAdded)} fichas** — isso virou uma **dívida em seu nome** no banco.`
-        );
-      }
-      lines.push(`Banca atual: **${fmt(result.newBanca)} fichas**.`);
-      msg = lines.join("\n");
-      ok = false;
-    }
-
-    await toast(interaction, msg, ok);
+    // O resultado (ganhou/perdeu) já aparece direto no painel — sem mensagem extra aqui.
     return;
   }
 

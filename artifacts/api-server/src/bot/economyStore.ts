@@ -66,6 +66,8 @@ export interface CassinoLastResult {
   outcome: "cor" | "perde" | "jackpot" | "catastrofe";
   amount: number; // quanto foi ganho ou perdido nessa rodada (sempre positivo)
   won: boolean;
+  fichasPerdidas?: number; // só no cenário catastrófico: quanto saiu da carteira
+  debtAdded?: number; // só no cenário catastrófico: dívida criada em nome do usuário
 }
 
 export interface CassinoState {
@@ -691,6 +693,7 @@ export function girarRoleta(userId: string, cor: RoletaCor, numero: number): Gir
     outcome,
     amount: resultAmount,
     won: outcome === "cor" || outcome === "jackpot",
+    ...(outcome === "catastrofe" ? { fichasPerdidas, debtAdded } : {}),
   };
 
   saveData();
