@@ -22,6 +22,12 @@ export const LOAN_LATE_DAILY_RATE = 0.05; // juros extra por dia de atraso (apó
 export const MAX_ACTIVE_LOANS = 2;
 export const UNLOCK_THRESHOLD = 0.3; // 30% da dívida travada precisa ser paga para desbloquear
 
+// Enquanto o usuário tem dívida de empréstimo ativa, o banco fica mais rígido
+// com transferências: só permite valores menores que esse teto, e só uma vez
+// por dia (24h). Não afeta usuários sem dívida ativa.
+export const DEBT_TRANSFER_MAX_AMOUNT = 2000; // transferências precisam ser < 2000 fichas
+export const DEBT_TRANSFER_COOLDOWN_MS = DAY_MS; // 1 transferência a cada 24h
+
 const MAX_INVESTMENT_TICKS = 4320; // limite de "ticks" de 10min simulados de uma vez (proteção, ~30 dias)
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -56,6 +62,7 @@ export interface UserEconomy {
   bankLocked: boolean;
   lockDebt: number; // dívida total no momento em que a conta foi fechada
   unlockPaid: number; // quanto já foi pago desde o bloqueio, rumo ao desbloqueio
+  lastTransferAt: number; // timestamp ms da última transferência enviada (usado para limitar envios enquanto há dívida ativa)
 }
 
 type EconomyData = Record<string, UserEconomy>;
@@ -103,6 +110,7 @@ function freshUser(): UserEconomy {
     bankLocked: false,
     lockDebt: 0,
     unlockPaid: 0,
+    lastTransferAt: 0,
   };
 }
 
@@ -120,6 +128,7 @@ export function getUser(userId: string): UserEconomy {
   if (u.bankLocked === undefined) u.bankLocked = false;
   if (u.lockDebt === undefined) u.lockDebt = 0;
   if (u.unlockPaid === undefined) u.unlockPaid = 0;
+  if (u.lastTransferAt === undefined) u.lastTransferAt = 0;
   return u;
 }
 
@@ -447,11 +456,26 @@ export function withdrawPartial(userId: string, amount: number): WithdrawPartial
 
 export type TransferResult =
   | { ok: true; amount: number }
-  | { ok: false; reason: "invalid_amount" | "insufficient" | "locked" | "same_user" };
+  | {
+      ok: false;
+      reason:
+        | "invalid_amount"
+        | "insufficient"
+        | "locked"
+        | "same_user"
+        | "debt_amount_too_high"
+        | "debt_cooldown";
+      retryAt?: number; // timestamp ms em que o próximo envio será liberado (só para "debt_cooldown")
+    };
 
 /**
  * Transfere fichas de um usuário para outro (comando /pix). O remetente
  * precisa ter saldo suficiente e a conta não pode estar bloqueada.
+ *
+ * Enquanto o remetente tiver dívida de empréstimo ativa, o banco impõe
+ * regras extras: só é possível enviar valores abaixo de
+ * DEBT_TRANSFER_MAX_AMOUNT, e apenas uma vez a cada DEBT_TRANSFER_COOLDOWN_MS
+ * (24h). Essas restrições não se aplicam a usuários sem dívida ativa.
  */
 export function transferFichas(fromUserId: string, toUserId: string, amount: number): TransferResult {
   if (fromUserId === toUserId) return { ok: false, reason: "same_user" };
@@ -459,10 +483,22 @@ export function transferFichas(fromUserId: string, toUserId: string, amount: num
 
   const from = processAccount(fromUserId);
   if (from.bankLocked) return { ok: false, reason: "locked" };
+
+  if (totalDebt(from) > 0) {
+    if (amount >= DEBT_TRANSFER_MAX_AMOUNT) {
+      return { ok: false, reason: "debt_amount_too_high" };
+    }
+    const elapsed = Date.now() - from.lastTransferAt;
+    if (from.lastTransferAt > 0 && elapsed < DEBT_TRANSFER_COOLDOWN_MS) {
+      return { ok: false, reason: "debt_cooldown", retryAt: from.lastTransferAt + DEBT_TRANSFER_COOLDOWN_MS };
+    }
+  }
+
   if (from.fichas < amount) return { ok: false, reason: "insufficient" };
 
   const to = processAccount(toUserId);
   from.fichas -= amount;
+  from.lastTransferAt = Date.now();
   to.fichas += amount;
   saveData();
   return { ok: true, amount };

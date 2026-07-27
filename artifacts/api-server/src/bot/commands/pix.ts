@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction } from "discord.js";
 import { type BotCommand } from "../index";
 import { successContainer, errorContainer, v2Reply, v2EphemeralReply } from "../v2/index";
-import { transferFichas } from "../economyStore";
+import { transferFichas, DEBT_TRANSFER_MAX_AMOUNT } from "../economyStore";
 
 function fmt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
@@ -37,7 +37,13 @@ export const pixCommand: BotCommand = {
             ? "Sua conta está bloqueada. Pague suas dívidas em `/banco` antes de transferir fichas."
             : result.reason === "insufficient"
               ? "Você não tem fichas suficientes para essa transferência."
-              : "Valor inválido.";
+              : result.reason === "debt_amount_too_high"
+                ? `Enquanto você tiver dívidas de empréstimo, só pode transferir menos de **${fmt(DEBT_TRANSFER_MAX_AMOUNT)} fichas** por vez.`
+                : result.reason === "debt_cooldown"
+                  ? `Enquanto você tiver dívidas de empréstimo, só pode fazer **1 transferência por dia**. Tente novamente <t:${Math.ceil(
+                      (result.retryAt ?? Date.now()) / 1000
+                    )}:R>.`
+                  : "Valor inválido.";
       await interaction.reply(v2EphemeralReply([errorContainer(reason)]));
       return;
     }
