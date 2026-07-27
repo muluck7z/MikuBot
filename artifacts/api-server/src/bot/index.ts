@@ -24,6 +24,7 @@ import { handleModal } from "./handlers/modal";
 import { handleSelectMenu } from "./handlers/selectMenu";
 import { handlePeerLoanButton } from "./handlers/peerLoan";
 import { hasStaffAccess } from "./guard";
+import { isEconomyBlocked } from "./economyStore";
 import { errorContainer } from "./v2/index";
 import { reactionRoleStore, makeKey, emojiKeyFromReaction } from "./reactionRoleStore";
 import { cargoSessions } from "./cargoSessionStore";
@@ -57,6 +58,20 @@ async function replyAccessDenied(
 ) {
   const payload = {
     components: [errorContainer("Você não tem permissão para usar o bot.\nApenas **Moderadores**, **Gerentes** e **Administradores** podem utilizar os comandos.")],
+    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+  };
+  if (interaction.replied || interaction.deferred) {
+    await interaction.followUp(payload).catch(() => null);
+  } else {
+    await interaction.reply(payload).catch(() => null);
+  }
+}
+
+async function replyEconomyBlocked(
+  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction
+) {
+  const payload = {
+    components: [errorContainer("Você foi bloqueado(a) de usar o sistema de economia do banco.")],
     flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
   };
   if (interaction.replied || interaction.deferred) {
@@ -114,10 +129,18 @@ export async function startBot() {
     // DM (fora de servidor) — tratados aqui antes do bloqueio "guild-only".
     if (!interaction.inGuild()) {
       if (interaction.isButton() && interaction.customId.startsWith("pemp:")) {
+        if (isEconomyBlocked(interaction.user.id)) {
+          await replyEconomyBlocked(interaction);
+          return;
+        }
         await handlePeerLoanButton(interaction).catch((err) =>
           logger.error({ err }, "Erro no botão de empréstimo pessoal (DM)")
         );
       } else if (interaction.isModalSubmit() && interaction.customId.startsWith("pemp:")) {
+        if (isEconomyBlocked(interaction.user.id)) {
+          await replyEconomyBlocked(interaction);
+          return;
+        }
         await handleModal(interaction as ModalSubmitInteraction).catch((err) =>
           logger.error({ err }, "Erro no modal de empréstimo pessoal (DM)")
         );
@@ -150,9 +173,22 @@ export async function startBot() {
       interaction.customId.startsWith("cassino:");
 
     // Commands available to all members regardless of role
-    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "administrar-saldo", "cassino", "negocios"]);
+    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "administrar-saldo", "bloquear-contas", "cassino", "negocios"]);
     const isPublicCommand =
       interaction.isChatInputCommand() && PUBLIC_COMMANDS.has(interaction.commandName);
+
+    // Comandos e interações do sistema de economia — um usuário bloqueado por
+    // /bloquear-contas não pode usar nenhum deles, mesmo sendo público.
+    const ECONOMY_COMMANDS = new Set(["banco", "pix", "cassino", "negocios"]);
+    const isEconomyCommand =
+      interaction.isChatInputCommand() && ECONOMY_COMMANDS.has(interaction.commandName);
+
+    if ((isEconomyCommand || isBancoInteraction || isCassinoInteraction) && isEconomyBlocked(interaction.user.id)) {
+      await replyEconomyBlocked(
+        interaction as ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction
+      );
+      return;
+    }
 
     if (
       !isPublicCommand &&

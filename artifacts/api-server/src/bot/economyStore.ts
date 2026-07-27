@@ -134,6 +134,7 @@ export interface UserEconomy {
   lockDebt: number; // dívida total no momento em que a conta foi fechada
   unlockPaid: number; // quanto já foi pago desde o bloqueio, rumo ao desbloqueio
   lastTransferAt: number; // timestamp ms da última transferência enviada (usado para limitar envios enquanto há dívida ativa)
+  economyBlocked: boolean; // bloqueado por um admin de interagir com todo o sistema de economia (banco, pix, cassino, negócios)
 }
 
 type EconomyData = Record<string, UserEconomy>;
@@ -202,6 +203,7 @@ function freshUser(): UserEconomy {
     lockDebt: 0,
     unlockPaid: 0,
     lastTransferAt: 0,
+    economyBlocked: false,
   };
 }
 
@@ -231,6 +233,7 @@ export function getUser(userId: string): UserEconomy {
   if (u.lockDebt === undefined) u.lockDebt = 0;
   if (u.unlockPaid === undefined) u.unlockPaid = 0;
   if (u.lastTransferAt === undefined) u.lastTransferAt = 0;
+  if (u.economyBlocked === undefined) u.economyBlocked = false;
   if (!u.cassino) u.cassino = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null };
   if (u.cassino.lastResult === undefined) u.cassino.lastResult = null;
   return u;
@@ -941,6 +944,27 @@ export function adjustFichas(userId: string, amount: number): AdjustResult {
   const delta = user.fichas - before;
   saveData();
   return { ok: true, requested: amount, delta, newBalance: user.fichas };
+}
+
+// ─── Bloqueio de economia (admin) ──────────────────────────────────────────────
+//
+// Diferente de `bankLocked` (que é automático, por dívida não paga), este
+// bloqueio é manual — um admin impede um usuário específico de interagir com
+// todo o sistema de economia (banco, pix, cassino, negócios). O usuário
+// bloqueado não consegue nem abrir essas telas nem clicar em nenhum botão
+// delas; nada mais no bot é afetado.
+
+/** Bloqueia ou desbloqueia um usuário do sistema de economia. Retorna o novo estado. */
+export function setEconomyBlock(userId: string, blocked: boolean): boolean {
+  const user = getUser(userId);
+  user.economyBlocked = blocked;
+  saveData();
+  return user.economyBlocked;
+}
+
+/** Verifica se um usuário está bloqueado do sistema de economia. */
+export function isEconomyBlocked(userId: string): boolean {
+  return getUser(userId).economyBlocked;
 }
 
 // ─── Cassino Brazino 777 — Roleta ───────────────────────────────────────────────

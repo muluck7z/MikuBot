@@ -26,6 +26,7 @@ import { negociosCommand } from "./commands/negocios";
 import { cassinoCommand } from "./commands/cassino";
 import { pixCommand } from "./commands/pix";
 import { administrarSaldoCommand } from "./commands/administrarSaldo";
+import { bloquearContasCommand } from "./commands/bloquearContas";
 import { syncInvitesCommand } from "./commands/syncinvites";
 import { deployCommandsMerged, fetchRegisteredCommands } from "./deploy";
 import { logger } from "../lib/logger";
@@ -57,6 +58,7 @@ const allCommands: BotCommand[] = [
   cassinoCommand,
   pixCommand,
   administrarSaldoCommand,
+  bloquearContasCommand,
   syncInvitesCommand,
 ];
 
