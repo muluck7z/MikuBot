@@ -1,7 +1,6 @@
 {
   "name": "workspace",
   "version": "0.0.0",
-  "last_trigger": "Mon Jul 27 20:11:38 UTC 2026",
   "license": "MIT",
   "packageManager": "pnpm@10.26.1",
   "scripts": {
