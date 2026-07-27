@@ -1,15 +1,19 @@
 import fs from "fs";
-import path from "path";
 import { type Guild } from "discord.js";
 import { addPendingInvite } from "./economyStore";
 import { logger } from "../lib/logger";
+import { dataFilePath } from "./dataDir";
 
 // Salva o último número de usos conhecido de cada invite, por servidor.
 // Isso é o que permite recuperar usos que aconteceram antes do bot rastrear
 // aquele link (ou durante um período em que o bot ficou offline) — sem isso,
 // um reinício do bot faria o "baseline" pular direto para o valor atual e os
 // usos antigos nunca seriam creditados.
-const DATA_FILE = path.join(process.cwd(), "invite_data.json");
+//
+// O arquivo é salvo num diretório persistente (ver dataDir.ts) — assim ele
+// sobrevive a deploys e restarts no Railway, desde que um Volume esteja
+// anexado ao serviço.
+const DATA_FILE = dataFilePath("invite_data.json");
 
 type InviteData = Record<string, Record<string, number>>; // guildId -> code -> uses conhecidos
 

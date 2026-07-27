@@ -1,10 +1,7 @@
 import {
   infoContainer,
   secondaryButton,
-  successButton,
-  dangerButton,
   row,
-  COLORS,
   MessageFlags,
 } from "./v2/index";
 import {
@@ -19,6 +16,7 @@ import {
   LOAN_LATE_DAILY_RATE,
   UNLOCK_THRESHOLD,
   MAX_ACTIVE_LOANS,
+  INVEST_TICK_MS,
 } from "./economyStore";
 
 function fmt(n: number): string {
@@ -34,6 +32,7 @@ const E = {
   termos: "<:svsino:1530817949340926025>",
   clock: "<:clock:1508157710422507663>",
   announce: "<:ticket_announce:1530817537007161374>",
+  parceria: "<:parceria:1522051353537417236>",
 };
 
 /** Monta o customId de um botão do banco, sempre com o dono embutido no final. */
@@ -47,6 +46,11 @@ function screen(container: ReturnType<typeof infoContainer>, ...rows: ReturnType
     components: [container, ...rows],
     flags: MessageFlags.IsComponentsV2,
   };
+}
+
+/** Timestamp (ms) do próximo "tick" de mercado, alinhado ao bucket de 10 minutos. */
+function nextInvestTick(lastUpdate: number): number {
+  return (Math.floor(lastUpdate / INVEST_TICK_MS) + 1) * INVEST_TICK_MS;
 }
 
 // ─── Menu principal ────────────────────────────────────────────────────────────
@@ -65,14 +69,13 @@ export function renderHome(userId: string) {
   const container = infoContainer({
     title: `${E.banco} Banco Central`,
     description: lines.join("\n"),
-    accentColor: user.bankLocked ? COLORS.danger : COLORS.info,
   });
 
   const buttons = row(
-    secondaryButton(bid("emprestimos", userId), "💸 Empréstimos"),
-    secondaryButton(bid("conversao", userId), "🔄 Conversão"),
-    secondaryButton(bid("carteira", userId), "💳 Carteira"),
-    secondaryButton(bid("investir", userId), "📈 Investir")
+    secondaryButton(bid("emprestimos", userId), "Empréstimos"),
+    secondaryButton(bid("conversao", userId), "Conversão"),
+    secondaryButton(bid("carteira", userId), "Carteira"),
+    secondaryButton(bid("investir", userId), "Investir")
   );
 
   return screen(container, buttons);
@@ -127,23 +130,19 @@ export function renderEmprestimos(userId: string) {
   const container = infoContainer({
     title: `${E.suporte} Empréstimos`,
     description: lines.join("\n"),
-    accentColor: user.bankLocked ? COLORS.danger : COLORS.info,
   });
 
-  const rows: ReturnType<typeof row>[] = [];
-
+  const buttons: ReturnType<typeof secondaryButton>[] = [];
   if (!user.bankLocked) {
     const canTakeMore = loans.length < MAX_ACTIVE_LOANS;
-    rows.push(row(secondaryButton(bid("loan_open", userId), "Empréstimo").setDisabled(!canTakeMore)));
+    buttons.push(secondaryButton(bid("loan_open", userId), "Empréstimo").setDisabled(!canTakeMore));
   }
-
-  const payRow = [secondaryButton(bid("home", userId), "⬅️ Voltar")];
   if (debt > 0) {
-    payRow.unshift(successButton(bid("loan", userId, "pagar"), "💵 Pagar Dívidas"));
+    buttons.push(secondaryButton(bid("loan", userId, "pagar"), "Pagar Dívidas"));
   }
-  rows.push(row(...payRow));
+  buttons.push(secondaryButton(bid("home", userId), "Voltar"));
 
-  return screen(container, ...rows);
+  return screen(container, row(...buttons));
 }
 
 // ─── Conversão ─────────────────────────────────────────────────────────────────
@@ -161,14 +160,14 @@ export function renderConversao(userId: string) {
   const container = infoContainer({
     title: `${E.banco} Conversão de Invites`,
     description: lines.join("\n"),
-    accentColor: COLORS.info,
   });
 
-  const buttonsRow = row(
-    secondaryButton(bid("conv_open", userId), "Conversão").setDisabled(user.pendingInvites < 1)
+  const buttons = row(
+    secondaryButton(bid("conv_open", userId), "Conversão").setDisabled(user.pendingInvites < 1),
+    secondaryButton(bid("home", userId), "Voltar")
   );
 
-  return screen(container, buttonsRow, row(secondaryButton(bid("home", userId), "⬅️ Voltar")));
+  return screen(container, buttons);
 }
 
 // ─── Carteira ──────────────────────────────────────────────────────────────────
@@ -208,10 +207,9 @@ export function renderCarteira(userId: string) {
   const container = infoContainer({
     title: `${E.banco} Sua Carteira`,
     description: lines.join("\n"),
-    accentColor: COLORS.info,
   });
 
-  return screen(container, row(secondaryButton(bid("home", userId), "⬅️ Voltar")));
+  return screen(container, row(secondaryButton(bid("home", userId), "Voltar")));
 }
 
 // ─── Investir ──────────────────────────────────────────────────────────────────
@@ -221,48 +219,50 @@ export function renderInvestir(userId: string) {
   const inv = user.investment;
 
   const lines: string[] = [];
-  const rows: ReturnType<typeof row>[] = [];
+  const buttons: ReturnType<typeof secondaryButton>[] = [];
 
   if (user.bankLocked) {
     lines.push(
       "🔒 **Sua conta está bloqueada.**",
       "Pague suas dívidas em Empréstimos para voltar a investir."
     );
-    rows.push(row(secondaryButton(bid("home", userId), "⬅️ Voltar")));
+    buttons.push(secondaryButton(bid("home", userId), "Voltar"));
   } else if (!inv.active) {
     lines.push(
       "Você não tem nenhum investimento ativo.",
       "Escolha um valor para começar. O valor investido sobe ou desce a cada 10 minutos (📈 +10%, 📉 -10%, ou uma variação aleatória) — o mercado é o mesmo para todo mundo.",
       "⚠️ Se o valor chegar a zero e você não sacar, ele pode continuar caindo e você fica devendo fichas."
     );
-    rows.push(row(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1)));
-    rows.push(row(secondaryButton(bid("home", userId), "⬅️ Voltar")));
+    buttons.push(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1));
+    buttons.push(secondaryButton(bid("home", userId), "Voltar"));
   } else {
     const sign = inv.balance >= 0 ? "+" : "";
     const pctSign = inv.lastChangePct >= 0 ? "+" : "";
-    const arrow = inv.lastChangePct > 0 ? "📈" : inv.lastChangePct < 0 ? "📉" : "➖";
+    const nextTick = nextInvestTick(inv.lastUpdate);
 
     lines.push(
-      `${arrow} **Valor atual:** ${sign}${fmt(inv.balance)} fichas`,
-      `**Total depositado:** ${fmt(inv.deposited)} fichas`,
-      `**Última variação:** ${pctSign}${Math.round(inv.lastChangePct * 100)}%`,
-      "",
-      inv.balance < 0
-        ? "⚠️ **Você está devendo neste investimento.** Deposite mais para tentar recuperar ou saque para encerrar."
-        : "O mercado é o mesmo para todo mundo e muda a cada 10 minutos. Deposite mais ou saque quando quiser."
+      E.ticketUser,
+      `Valor atual: ${sign}${fmt(inv.balance)} fichas`,
+      `Última variação: ${pctSign}${Math.round(inv.lastChangePct * 100)}%`,
+      `Tempo para a variação: <t:${Math.floor(nextTick / 1000)}:R>`
     );
 
-    rows.push(row(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1)));
-    rows.push(
-      row(dangerButton(bid("inv", userId, "sacar"), "💵 Sacar Tudo"), secondaryButton(bid("home", userId), "⬅️ Voltar"))
-    );
+    if (inv.balance < 0) {
+      lines.push(
+        "",
+        "⚠️ **Você está devendo neste investimento.** Deposite mais para tentar recuperar ou saque para encerrar."
+      );
+    }
+
+    buttons.push(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1));
+    buttons.push(secondaryButton(bid("inv", userId, "sacar"), "Sacar"));
+    buttons.push(secondaryButton(bid("home", userId), "Voltar"));
   }
 
   const container = infoContainer({
-    title: "📈 Investimentos",
+    title: `${E.parceria} Investimento`,
     description: lines.join("\n"),
-    accentColor: user.bankLocked ? COLORS.danger : COLORS.info,
   });
 
-  return screen(container, ...rows);
+  return screen(container, row(...buttons));
 }

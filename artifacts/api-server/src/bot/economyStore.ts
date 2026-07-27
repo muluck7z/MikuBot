@@ -1,12 +1,14 @@
 import fs from "fs";
-import path from "path";
+import { dataFilePath } from "./dataDir";
 
-// Salva os dados no mesmo diretório do processo
-const DATA_FILE = path.join(process.cwd(), "economy_data.json");
+// Salva os dados num diretório persistente (ver dataDir.ts) — assim eles
+// sobrevivem a deploys e restarts no Railway, desde que um Volume esteja
+// anexado ao serviço.
+const DATA_FILE = dataFilePath("economy_data.json");
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-const INVEST_TICK_MS = 10 * 60 * 1000; // mercado de investimentos atualiza a cada 10 minutos
+export const INVEST_TICK_MS = 10 * 60 * 1000; // mercado de investimentos atualiza a cada 10 minutos
 
 // ─── Configurações do banco ────────────────────────────────────────────────────
 
