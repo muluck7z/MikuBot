@@ -32,7 +32,7 @@ const E = {
   termos: "<:svsino:1530817949340926025>",
   clock: "<:clock:1508157710422507663>",
   announce: "<:ticket_announce:1530817537007161374>",
-  parceria: "<:parceria:1522051353537417236>",
+  parceria: "<:parceria:1531111024369995868>",
 };
 
 /** Monta o customId de um botão do banco, sempre com o dono embutido no final. */
@@ -223,15 +223,15 @@ export function renderInvestir(userId: string) {
 
   if (user.bankLocked) {
     lines.push(
-      "🔒 **Sua conta está bloqueada.**",
+      "**Sua conta está bloqueada.**",
       "Pague suas dívidas em Empréstimos para voltar a investir."
     );
     buttons.push(secondaryButton(bid("home", userId), "Voltar"));
   } else if (!inv.active) {
     lines.push(
       "Você não tem nenhum investimento ativo.",
-      "Escolha um valor para começar. O valor investido sobe ou desce a cada 10 minutos (📈 +10%, 📉 -10%, ou uma variação aleatória) — o mercado é o mesmo para todo mundo.",
-      "⚠️ Se o valor chegar a zero e você não sacar, ele pode continuar caindo e você fica devendo fichas."
+      "Escolha um valor para começar. O valor investido sobe ou desce a cada 10 minutos (+10%, -10%, ou uma variação aleatória) — o mercado é o mesmo para todo mundo.",
+      "Se o valor chegar a zero e você não sacar, ele pode continuar caindo e você fica devendo fichas."
     );
     buttons.push(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1));
     buttons.push(secondaryButton(bid("home", userId), "Voltar"));
@@ -241,7 +241,6 @@ export function renderInvestir(userId: string) {
     const nextTick = nextInvestTick(inv.lastUpdate);
 
     lines.push(
-      E.ticketUser,
       `Valor atual: ${sign}${fmt(inv.balance)} fichas`,
       `Última variação: ${pctSign}${Math.round(inv.lastChangePct * 100)}%`,
       `Tempo para a variação: <t:${Math.floor(nextTick / 1000)}:R>`
@@ -250,7 +249,7 @@ export function renderInvestir(userId: string) {
     if (inv.balance < 0) {
       lines.push(
         "",
-        "⚠️ **Você está devendo neste investimento.** Deposite mais para tentar recuperar ou saque para encerrar."
+        "**Você está devendo neste investimento.** Deposite mais para tentar recuperar ou saque para encerrar."
       );
     }
 
