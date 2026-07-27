@@ -9,7 +9,8 @@ import {
 import { errorContainer, successContainer, v2EphemeralReply } from "../v2/index";
 import { renderCassinoHome, renderRoleta } from "../cassinoViews";
 import {
-  apostarCassino,
+  depositarCassino,
+  configurarRodada,
   girarRoleta,
   sacarCassino,
   sairCassino,
@@ -69,15 +70,29 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
     return;
   }
 
-  if (action === "apostar") {
-    const modal = new ModalBuilder().setCustomId(`cassino:apostar_submit:_:${userId}`).setTitle("Apostar");
+  if (action === "depositar") {
+    const modal = new ModalBuilder().setCustomId(`cassino:depositar_submit:_:${userId}`).setTitle("Depositar");
     const input = new TextInputBuilder()
       .setCustomId("valor")
-      .setLabel("Quanto quer apostar por rodada")
+      .setLabel("Quanto quer depositar na banca")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
       .setMaxLength(10)
       .setPlaceholder("Ex: 100");
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (action === "rodada") {
+    const modal = new ModalBuilder().setCustomId(`cassino:rodada_submit:_:${userId}`).setTitle("Configurar Rodada");
+    const input = new TextInputBuilder()
+      .setCustomId("valor")
+      .setLabel("Quantas fichas por rodada")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder("Ex: 10");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
     return;
@@ -144,7 +159,7 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
     return;
   }
 
-  if (action === "apostar_submit") {
+  if (action === "depositar_submit") {
     const raw = interaction.fields.getTextInputValue("valor");
     const valor = parseAmount(raw);
 
@@ -153,7 +168,7 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
       return;
     }
 
-    const result = apostarCassino(userId, valor);
+    const result = depositarCassino(userId, valor);
     await interaction.update(renderRoleta(userId) as never);
 
     if (!result.ok) {
@@ -161,7 +176,7 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
         result.reason === "locked"
           ? "Sua conta está bloqueada. Pague suas dívidas em `/banco` antes de apostar."
           : result.reason === "insufficient"
-            ? "Você não tem fichas suficientes para essa aposta."
+            ? "Você não tem fichas suficientes para esse depósito."
             : "Valor inválido.";
       await toast(interaction, reason, false);
       return;
@@ -169,9 +184,34 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
 
     await toast(
       interaction,
-      `Você colocou **${fmt(result.added)} fichas** na banca. Aposta por rodada: **${fmt(result.betPerRound)} fichas**.`,
+      `Você depositou **${fmt(result.added)} fichas** na banca. Valor por rodada: **${fmt(result.betPerRound)} fichas**.`,
       true
     );
+    return;
+  }
+
+  if (action === "rodada_submit") {
+    const raw = interaction.fields.getTextInputValue("valor");
+    const valor = parseAmount(raw);
+
+    if (valor === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido. Digite um número válido.")]));
+      return;
+    }
+
+    const result = configurarRodada(userId, valor);
+    await interaction.update(renderRoleta(userId) as never);
+
+    if (!result.ok) {
+      const reason =
+        result.reason === "locked"
+          ? "Sua conta está bloqueada. Pague suas dívidas em `/banco` antes de jogar."
+          : "Valor inválido.";
+      await toast(interaction, reason, false);
+      return;
+    }
+
+    await toast(interaction, `Valor por rodada definido para **${fmt(result.betPerRound)} fichas**.`, true);
     return;
   }
 
@@ -198,7 +238,7 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
         result.reason === "locked"
           ? "Sua conta está bloqueada. Pague suas dívidas em `/banco` antes de jogar."
           : result.reason === "no_bet"
-            ? "Defina uma aposta por rodada primeiro, clicando em **Apostar**, e garanta que a banca cubra o valor."
+            ? "Deposite fichas na banca (**Depositar**) e garanta que ela cubra o valor por rodada (ajustável em **Rodada**)."
             : "Dados inválidos.";
       await toast(interaction, reason, false);
       return;

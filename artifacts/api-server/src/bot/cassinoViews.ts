@@ -10,6 +10,8 @@ const E = {
   parceria: "<:parceria:1531111024369995868>",
   suporte: "<:suporte:1531074502790873171>",
   announce: "<:ticket_announce:1530817537007161374>",
+  ticketUser: "<:ticket_user:1530817417842921492>",
+  ticket: "<:ticket:1508274275730063360>",
 };
 
 // TODO: ainda não temos o arquivo da logo Brazino 777 salvo no repositório —
@@ -53,15 +55,33 @@ export function renderRoleta(userId: string) {
   const user = processAccount(userId);
   const cassino = user.cassino;
 
-  const lines = [
-    `${E.announce}`,
-    "* O jogo funciona da seguinte forma:",
-    `  * A roleta consiste em números de 1 a ${ROLETA_NUMEROS} (brancos) e (pretos), você deve escolher uma cor e um número da sorte; se sua cor for onde a bola branca parou mas não em cima do seu número da sorte, você ganha o dobro do que apostou mas, se for o contrário você perde o valor que apostou; se fosse sua cor e o número da sorte que tivesse caído, o valor que você apostou seria multiplicado por 100 mas, se fosse o contrário a cor oposta e o mesmo número da sorte, o valor que você apostou seria multiplicado por 100 e descontado da sua banca, e caso a sua banca não consiga tancar esse valor, pegamos o valor que estiver no seu banco mas, se não tiver saldo suficiente em seu banco vira dívida em seu nome.`,
-    "",
-    `💰 **Banca na mesa:** ${fmt(cassino.banca)} fichas`,
-    `🎯 **Aposta por rodada:** ${cassino.betPerRound > 0 ? `${fmt(cassino.betPerRound)} fichas` : "não definida — clique em Apostar"}`,
-    `👛 **Saldo na carteira:** ${fmt(user.fichas)} fichas`,
-  ];
+  let lines: string[];
+
+  if (cassino.banca > 0) {
+    // Já depositou — painel enxuto, visível para todo mundo.
+    lines = [
+      `${E.ticketUser} Banca: ${fmt(cassino.banca)} fichas`,
+      `${E.ticket} Valor por rodada: ${fmt(cassino.betPerRound)} fichas`,
+    ];
+
+    if (cassino.lastResult) {
+      const { cor, numero, won, amount } = cassino.lastResult;
+      const verbo = won ? "ganhou" : "perdeu";
+      lines.push("");
+      lines.push(`${E.announce} (${cor};${numero}), você ${verbo} ${fmt(amount)} fichas`);
+    }
+  } else {
+    // Ainda não depositou — mostra a explicação completa do jogo.
+    lines = [
+      `${E.announce}`,
+      "* O jogo funciona da seguinte forma:",
+      `  * A roleta consiste em números de 1 a ${ROLETA_NUMEROS} (brancos) e (pretos), você deve escolher uma cor e um número da sorte; se sua cor for onde a bola branca parou mas não em cima do seu número da sorte, você ganha o dobro do que apostou mas, se for o contrário você perde o valor que apostou; se fosse sua cor e o número da sorte que tivesse caído, o valor que você apostou seria multiplicado por 100 mas, se fosse o contrário a cor oposta e o mesmo número da sorte, o valor que você apostou seria multiplicado por 100 e descontado da sua banca, e caso a sua banca não consiga tancar esse valor, pegamos o valor que estiver no seu banco mas, se não tiver saldo suficiente em seu banco vira dívida em seu nome.`,
+      "",
+      `${E.ticketUser} Banca: ${fmt(cassino.banca)} fichas`,
+      `${E.ticket} Valor por rodada: ${fmt(cassino.betPerRound)} fichas`,
+      `👛 **Saldo na carteira:** ${fmt(user.fichas)} fichas`,
+    ];
+  }
 
   const container = infoContainer({
     title: `${E.suporte} Brazino - Roleta`,
@@ -70,7 +90,8 @@ export function renderRoleta(userId: string) {
   });
 
   const buttons = row(
-    secondaryButton(cid("apostar", userId), "Apostar"),
+    secondaryButton(cid("depositar", userId), "Depositar"),
+    secondaryButton(cid("rodada", userId), "Rodada"),
     secondaryButton(cid("girar", userId), "Girar").setDisabled(
       cassino.betPerRound <= 0 || cassino.banca < cassino.betPerRound
     ),

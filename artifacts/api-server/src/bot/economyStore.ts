@@ -57,11 +57,21 @@ const INVEST_HISTORY_LENGTH = 10;
 // ─── Configurações do cassino (Roleta Brazino 777) ─────────────────────────────
 
 export const ROLETA_NUMEROS = 15; // números de 1 a 15, em branco e em preto (30 posições)
+export const DEFAULT_BET_PER_ROUND = 10; // valor padrão de aposta por rodada
 export type RoletaCor = "branco" | "preto";
 
+export interface CassinoLastResult {
+  cor: RoletaCor; // cor sorteada na roleta
+  numero: number; // número sorteado na roleta
+  outcome: "cor" | "perde" | "jackpot" | "catastrofe";
+  amount: number; // quanto foi ganho ou perdido nessa rodada (sempre positivo)
+  won: boolean;
+}
+
 export interface CassinoState {
-  banca: number; // fichas depositadas na mesa (sobe a cada clique em "Apostar")
-  betPerRound: number; // valor apostado por rodada (definido pelo último "Apostar")
+  banca: number; // fichas depositadas na mesa (sobe a cada clique em "Depositar")
+  betPerRound: number; // valor apostado por rodada (configurado em "Rodada")
+  lastResult: CassinoLastResult | null; // resultado da última rodada, exibido no painel
 }
 
 export interface UserEconomy {
@@ -118,7 +128,7 @@ function freshUser(): UserEconomy {
       lastChangePct: 0,
       history: [],
     },
-    cassino: { banca: 0, betPerRound: 0 },
+    cassino: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null },
     bankLocked: false,
     lockDebt: 0,
     unlockPaid: 0,
@@ -141,7 +151,8 @@ export function getUser(userId: string): UserEconomy {
   if (u.lockDebt === undefined) u.lockDebt = 0;
   if (u.unlockPaid === undefined) u.unlockPaid = 0;
   if (u.lastTransferAt === undefined) u.lastTransferAt = 0;
-  if (!u.cassino) u.cassino = { banca: 0, betPerRound: 0 };
+  if (!u.cassino) u.cassino = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null };
+  if (u.cassino.lastResult === undefined) u.cassino.lastResult = null;
   return u;
 }
 
@@ -567,12 +578,12 @@ function addForcedDebt(user: UserEconomy, amount: number): void {
   });
 }
 
-export type ApostarCassinoResult =
+export type DepositarCassinoResult =
   | { ok: true; added: number; banca: number; betPerRound: number }
   | { ok: false; reason: "locked" | "insufficient" | "invalid_amount" };
 
-/** Move fichas da carteira para a banca do cassino e define o valor apostado por rodada. */
-export function apostarCassino(userId: string, valor: number): ApostarCassinoResult {
+/** Move fichas da carteira para a banca do cassino (não mexe no valor por rodada). */
+export function depositarCassino(userId: string, valor: number): DepositarCassinoResult {
   if (!Number.isFinite(valor) || valor < 1) return { ok: false, reason: "invalid_amount" };
   const user = processAccount(userId);
   if (user.bankLocked) return { ok: false, reason: "locked" };
@@ -580,9 +591,23 @@ export function apostarCassino(userId: string, valor: number): ApostarCassinoRes
 
   user.fichas -= valor;
   user.cassino.banca += valor;
-  user.cassino.betPerRound = valor;
   saveData();
   return { ok: true, added: valor, banca: user.cassino.banca, betPerRound: user.cassino.betPerRound };
+}
+
+export type ConfigurarRodadaResult =
+  | { ok: true; betPerRound: number }
+  | { ok: false; reason: "locked" | "invalid_amount" };
+
+/** Define quantas fichas valem cada rodada da roleta (padrão: DEFAULT_BET_PER_ROUND). */
+export function configurarRodada(userId: string, valor: number): ConfigurarRodadaResult {
+  if (!Number.isFinite(valor) || valor < 1) return { ok: false, reason: "invalid_amount" };
+  const user = processAccount(userId);
+  if (user.bankLocked) return { ok: false, reason: "locked" };
+
+  user.cassino.betPerRound = Math.floor(valor);
+  saveData();
+  return { ok: true, betPerRound: user.cassino.betPerRound };
 }
 
 export type GirarRoletaResult =
@@ -601,7 +626,7 @@ export type GirarRoletaResult =
     }
   | { ok: false; reason: "locked" | "no_bet" | "invalid_input" };
 
-/** Gira a roleta usando o valor de aposta por rodada já definido (via apostarCassino). */
+/** Gira a roleta usando o valor de aposta por rodada já definido (via configurarRodada). */
 export function girarRoleta(userId: string, cor: RoletaCor, numero: number): GirarRoletaResult {
   if (cor !== "branco" && cor !== "preto") return { ok: false, reason: "invalid_input" };
   if (!Number.isInteger(numero) || numero < 1 || numero > ROLETA_NUMEROS) {
@@ -657,6 +682,17 @@ export function girarRoleta(userId: string, cor: RoletaCor, numero: number): Gir
   }
 
   cassino.banca = Math.max(0, cassino.banca + bancaDelta);
+
+  const resultAmount =
+    outcome === "catastrofe" ? betAmount * 100 : outcome === "perde" ? betAmount : Math.abs(bancaDelta);
+  cassino.lastResult = {
+    cor: resultCor,
+    numero: resultNumero,
+    outcome,
+    amount: resultAmount,
+    won: outcome === "cor" || outcome === "jackpot",
+  };
+
   saveData();
 
   return {
@@ -698,7 +734,8 @@ export function sairCassino(userId: string): { returned: number } {
   const returned = cassino.banca;
   user.fichas += returned;
   cassino.banca = 0;
-  cassino.betPerRound = 0;
+  cassino.betPerRound = DEFAULT_BET_PER_ROUND;
+  cassino.lastResult = null;
   saveData();
   return { returned };
 }
