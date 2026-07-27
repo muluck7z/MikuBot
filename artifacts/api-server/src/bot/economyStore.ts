@@ -85,11 +85,11 @@ export type RoletaCor = "branco" | "preto";
 export interface CassinoLastResult {
   cor: RoletaCor; // cor sorteada na roleta
   numero: number; // número sorteado na roleta
-  outcome: "cor" | "perde" | "jackpot" | "catastrofe";
+  outcome: "cor" | "perde" | "jackpot" | "catastrofe" | "vizinho" | "vizinho_perde";
   amount: number; // quanto foi ganho ou perdido nessa rodada (sempre positivo)
   won: boolean;
-  fichasPerdidas?: number; // só no cenário catastrófico: quanto saiu da carteira
-  debtAdded?: number; // só no cenário catastrófico: dívida criada em nome do usuário
+  fichasPerdidas?: number; // só nos cenários catastrófico/vizinho_perde: quanto saiu da carteira
+  debtAdded?: number; // só nos cenários catastrófico/vizinho_perde: dívida criada em nome do usuário
 }
 
 export interface CassinoState {
@@ -212,6 +212,18 @@ export function activeLoans(user: UserEconomy): Loan[] {
   return user.loans.filter((l) => !l.paid);
 }
 
+/**
+ * Só os empréstimos que o usuário realmente pegou no banco (tela
+ * Empréstimos) — exclui dívidas "forçadas" (cassino, investimento negativo,
+ * empréstimo pessoal vencido), que só aparecem na Carteira. Ordenados do
+ * mais antigo pro mais novo.
+ */
+export function bankLoans(user: UserEconomy): Loan[] {
+  return activeLoans(user)
+    .filter((l) => forcedDebtLabel(l.id) === null)
+    .sort((a, b) => a.takenAt - b.takenAt);
+}
+
 export function totalDebt(user: UserEconomy): number {
   return activeLoans(user).reduce((sum, l) => sum + l.total, 0);
 }
@@ -305,7 +317,7 @@ export function takeLoan(userId: string, amount: number): TakeLoanResult {
     return { ok: false, reason: "invalid_amount" };
   }
   if (user.bankLocked) return { ok: false, reason: "locked" };
-  if (activeLoans(user).length >= MAX_ACTIVE_LOANS) {
+  if (bankLoans(user).length >= MAX_ACTIVE_LOANS) {
     return { ok: false, reason: "max_loans" };
   }
 
@@ -372,6 +384,60 @@ export function payDebts(
 
   saveData();
   return { paid: paidTotal, unlocked, remainingDebt: totalDebt(user) };
+}
+
+export type PayLoanByIndexResult =
+  | { ok: true; paid: number; remaining: number; finished: boolean; unlocked: boolean }
+  | { ok: false; reason: "not_found" | "insufficient" | "invalid_amount" };
+
+/**
+ * Paga um empréstimo específico. `index` é 1-based, seguindo a mesma ordem
+ * (mais antigo primeiro) usada para numerar os empréstimos na tela de
+ * origem — ex: empréstimo "1" ou "2".
+ *
+ * `scope` decide em qual lista o índice é procurado:
+ *  - "bank": só empréstimos reais do banco (tela Empréstimos).
+ *  - "all": qualquer dívida ativa, incluindo cassino/investimento/pessoal
+ *    convertido (tela Carteira).
+ */
+export function payLoanByIndex(
+  userId: string,
+  index: number,
+  amount: number,
+  scope: "bank" | "all" = "all"
+): PayLoanByIndexResult {
+  const user = processAccount(userId);
+  if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "invalid_amount" };
+
+  const loans = scope === "bank" ? bankLoans(user) : activeLoans(user).sort((a, b) => a.takenAt - b.takenAt);
+  const loan = loans[index - 1];
+  if (!loan) return { ok: false, reason: "not_found" };
+  if (user.fichas < amount) return { ok: false, reason: "insufficient" };
+
+  const payment = Math.min(amount, loan.total);
+  loan.total -= payment;
+  user.fichas -= payment;
+
+  let finished = false;
+  if (loan.total <= 0) {
+    loan.total = 0;
+    loan.paid = true;
+    finished = true;
+  }
+
+  let unlocked = false;
+  if (user.bankLocked) {
+    user.unlockPaid += payment;
+    if (user.unlockPaid >= user.lockDebt * UNLOCK_THRESHOLD) {
+      user.bankLocked = false;
+      user.lockDebt = 0;
+      user.unlockPaid = 0;
+      unlocked = true;
+    }
+  }
+
+  saveData();
+  return { ok: true, paid: payment, remaining: loan.total, finished, unlocked };
 }
 
 // ─── Investimento (mercado global, contínuo) ───────────────────────────────────
@@ -457,7 +523,7 @@ function updateInvestment(user: UserEconomy): void {
         // Saldo ficou negativo por variações demais seguidas: a dívida é
         // cobrada na hora (entra no sistema de empréstimos), mas o
         // investimento continua ativo normalmente a partir de 0.
-        addForcedDebt(user, -inv.balance);
+        addForcedDebt(user, -inv.balance, "investimento");
         inv.balance = 0;
         inv.negativeStreak = 0;
       }
@@ -638,7 +704,7 @@ function processPeerLoansForUser(user: UserEconomy, userId: string): void {
     if (loan.status !== "active") continue;
     if (!loan.dueAt || now < loan.dueAt) continue;
 
-    addForcedDebt(user, loan.totalOwed);
+    addForcedDebt(user, loan.totalOwed, "pessoal");
     loan.status = "converted";
     loan.convertedAt = now;
     changed = true;
@@ -658,6 +724,18 @@ export function peerLoansAsBorrower(userId: string): PeerLoan[] {
 /** Empréstimos pessoais que o usuário concedeu a outros membros. */
 export function peerLoansAsLender(userId: string): PeerLoan[] {
   return Object.values(_peerLoans).filter((l) => l.lenderId === userId);
+}
+
+/**
+ * Empréstimos pessoais ativos que o usuário pegou (como devedor), ordenados
+ * do mais antigo para o mais novo — essa ordem é a usada para numerar os
+ * empréstimos ("1", "2", ...) tanto na exibição da Carteira quanto no
+ * formulário de pagamento.
+ */
+export function activePeerLoansAsBorrower(userId: string): PeerLoan[] {
+  return peerLoansAsBorrower(userId)
+    .filter((l) => l.status === "active")
+    .sort((a, b) => a.createdAt - b.createdAt);
 }
 
 export type CreatePeerLoanResult =
@@ -767,6 +845,18 @@ export function payPeerLoan(loanId: string, payerId: string, amount: number): Pa
   return { ok: true, paid: payment, remaining: loan.totalOwed, finished };
 }
 
+/**
+ * Paga um empréstimo pessoal ativo (como devedor) usando o número exibido na
+ * Carteira (`index`, 1-based) em vez do id interno — usado pelo formulário
+ * "Pagar quem?" da Carteira.
+ */
+export function payPeerLoanByIndex(userId: string, index: number, amount: number): PayPeerLoanResult {
+  const loans = activePeerLoansAsBorrower(userId);
+  const loan = loans[index - 1];
+  if (!loan) return { ok: false, reason: "not_found" };
+  return payPeerLoan(loan.id, userId, amount);
+}
+
 // ─── Administração de saldo ────────────────────────────────────────────────────
 
 export type AdjustResult =
@@ -794,20 +884,27 @@ export function adjustFichas(userId: string, amount: number): AdjustResult {
 //
 // A roleta tem 30 posições: números de 1 a 15, cada um em branco ou em preto.
 // O jogador escolhe uma cor e um número da sorte antes de girar. Resultado:
-//   • Cor certa, número errado  → ganha o dobro do valor apostado na rodada.
-//   • Cor errada, número errado → perde o valor apostado na rodada.
+//   • Cor certa, número errado (não vizinho)  → ganha o dobro do valor apostado na rodada.
+//   • Cor certa, número vizinho (±1 do escolhido) → ganha 10x o valor apostado na rodada.
+//   • Cor errada, número errado (não vizinho) → perde o valor apostado na rodada.
+//   • Cor errada, número vizinho (±1 do escolhido) → perde 10x o valor apostado na
+//     rodada. Isso é descontado primeiro da banca, depois do saldo (fichas) e, se
+//     ainda faltar, vira uma dívida em nome do usuário (entra no sistema de empréstimos).
 //   • Cor certa, número certo   → ganha 100x o valor apostado na rodada.
 //   • Cor errada, número certo  → perde 100x o valor apostado na rodada. Isso é
 //     descontado primeiro da banca, depois do saldo (fichas) e, se ainda faltar,
 //     vira uma dívida em nome do usuário (entra no sistema de empréstimos).
 
-/** Adiciona uma dívida "forçada" (sem juros) ao nome do usuário — ex: perda no cassino. */
-function addForcedDebt(user: UserEconomy, amount: number): void {
+/** De onde veio uma dívida "forçada" (sem juros na criação) — usado só pra rotular/identificar na Carteira e em Empréstimos. */
+export type ForcedDebtSource = "cassino" | "investimento" | "pessoal";
+
+/** Adiciona uma dívida "forçada" ao nome do usuário — ex: perda no cassino, saldo negativo no investimento, ou empréstimo pessoal vencido. */
+function addForcedDebt(user: UserEconomy, amount: number, source: ForcedDebtSource): void {
   if (amount <= 0) return;
   const now = Date.now();
   const dueAt = now + LOAN_DUE_DAYS * DAY_MS;
   user.loans.push({
-    id: `cassino-${now}-${Math.floor(Math.random() * 1000)}`,
+    id: `${source}-${now}-${Math.floor(Math.random() * 1000)}`,
     amount,
     total: amount,
     takenAt: now,
@@ -815,6 +912,20 @@ function addForcedDebt(user: UserEconomy, amount: number): void {
     lastAccrualAt: dueAt,
     paid: false,
   });
+}
+
+/** Verifica se dois números da roleta são "vizinhos" (diferença de 1, com o wraparound entre o maior e o 1). */
+function isNumeroVizinho(a: number, b: number, max: number): boolean {
+  const diff = Math.abs(a - b);
+  return diff === 1 || diff === max - 1;
+}
+
+/** Rótulo amigável pra exibir ao lado de uma dívida forçada, a partir do prefixo do seu id (ver addForcedDebt). */
+export function forcedDebtLabel(loanId: string): string | null {
+  if (loanId.startsWith("cassino-")) return "cassino";
+  if (loanId.startsWith("investimento-")) return "Investimento do banco";
+  if (loanId.startsWith("pessoal-")) return "empréstimo pessoal vencido";
+  return null;
 }
 
 export type DepositarCassinoResult =
@@ -856,7 +967,7 @@ export type GirarRoletaResult =
       apostaNumero: number;
       resultCor: RoletaCor;
       resultNumero: number;
-      outcome: "cor" | "perde" | "jackpot" | "catastrofe";
+      outcome: "cor" | "perde" | "jackpot" | "catastrofe" | "vizinho" | "vizinho_perde";
       betAmount: number;
       bancaDelta: number; // variação líquida na banca (pode ser negativa)
       fichasPerdidas: number; // quanto foi tirado da carteira (só no cenário catastrófico)
@@ -885,22 +996,23 @@ export function girarRoleta(userId: string, cor: RoletaCor, numero: number): Gir
   const resultNumero = Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
   const colorHit = resultCor === cor;
   const numberHit = resultNumero === numero;
+  const vizinhoHit = !numberHit && isNumeroVizinho(resultNumero, numero, ROLETA_NUMEROS);
 
   let bancaDelta = 0;
   let fichasPerdidas = 0;
   let debtAdded = 0;
-  let outcome: "cor" | "perde" | "jackpot" | "catastrofe";
+  let outcome: "cor" | "perde" | "jackpot" | "catastrofe" | "vizinho" | "vizinho_perde";
 
-  if (colorHit && !numberHit) {
-    bancaDelta = betAmount * 2;
-    outcome = "cor";
-  } else if (!colorHit && !numberHit) {
-    bancaDelta = -betAmount;
-    outcome = "perde";
-  } else if (colorHit && numberHit) {
+  if (colorHit && numberHit) {
     bancaDelta = betAmount * 100;
     outcome = "jackpot";
-  } else {
+  } else if (colorHit && vizinhoHit) {
+    bancaDelta = betAmount * 10;
+    outcome = "vizinho";
+  } else if (colorHit) {
+    bancaDelta = betAmount * 2;
+    outcome = "cor";
+  } else if (numberHit) {
     // cor errada, número certo: perda de 100x — banca, depois carteira, depois dívida
     const totalLoss = betAmount * 100;
     outcome = "catastrofe";
@@ -915,22 +1027,49 @@ export function girarRoleta(userId: string, cor: RoletaCor, numero: number): Gir
       remaining -= fromWallet;
     }
     if (remaining > 0) {
-      addForcedDebt(user, remaining);
+      addForcedDebt(user, remaining, "cassino");
       debtAdded = remaining;
     }
+  } else if (vizinhoHit) {
+    // cor errada, número vizinho: perda de 10x — banca, depois carteira, depois dívida
+    const totalLoss = betAmount * 10;
+    outcome = "vizinho_perde";
+    const fromBanca = Math.min(cassino.banca, totalLoss);
+    bancaDelta = -fromBanca;
+    let remaining = totalLoss - fromBanca;
+
+    if (remaining > 0) {
+      const fromWallet = Math.min(user.fichas, remaining);
+      user.fichas -= fromWallet;
+      fichasPerdidas = fromWallet;
+      remaining -= fromWallet;
+    }
+    if (remaining > 0) {
+      addForcedDebt(user, remaining, "cassino");
+      debtAdded = remaining;
+    }
+  } else {
+    bancaDelta = -betAmount;
+    outcome = "perde";
   }
 
   cassino.banca = Math.max(0, cassino.banca + bancaDelta);
 
   const resultAmount =
-    outcome === "catastrofe" ? betAmount * 100 : outcome === "perde" ? betAmount : Math.abs(bancaDelta);
+    outcome === "catastrofe"
+      ? betAmount * 100
+      : outcome === "vizinho_perde"
+        ? betAmount * 10
+        : outcome === "perde"
+          ? betAmount
+          : Math.abs(bancaDelta);
   cassino.lastResult = {
     cor: resultCor,
     numero: resultNumero,
     outcome,
     amount: resultAmount,
-    won: outcome === "cor" || outcome === "jackpot",
-    ...(outcome === "catastrofe" ? { fichasPerdidas, debtAdded } : {}),
+    won: outcome === "cor" || outcome === "jackpot" || outcome === "vizinho",
+    ...(outcome === "catastrofe" || outcome === "vizinho_perde" ? { fichasPerdidas, debtAdded } : {}),
   };
 
   saveData();

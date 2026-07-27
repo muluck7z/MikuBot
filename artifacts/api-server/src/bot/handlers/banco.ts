@@ -6,7 +6,7 @@ import {
   TextInputStyle,
   ActionRowBuilder,
 } from "discord.js";
-import { errorContainer, successContainer, v2EphemeralReply } from "../v2/index";
+import { errorContainer, successContainer, v2Reply, v2EphemeralReply } from "../v2/index";
 import {
   renderHome,
   renderEmprestimos,
@@ -17,13 +17,16 @@ import {
 import { scheduleInvestAutoRefresh, clearInvestAutoRefresh } from "../investAutoRefresh";
 import {
   processAccount,
-  totalDebt,
+  activeLoans,
+  bankLoans,
+  payLoanByIndex,
   takeLoan,
-  payDebts,
   convertInvites,
   investFichas,
   withdrawInvestment,
   withdrawPartial,
+  activePeerLoansAsBorrower,
+  payPeerLoanByIndex,
   LOAN_DUE_DAYS,
   MAX_LOAN_AMOUNT,
 } from "../economyStore";
@@ -169,47 +172,89 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
     return;
   }
 
-  // ── Empréstimos ────────────────────────────────────────────────────────────
-  if (action === "loan") {
-    if (arg === "pagar") {
-      const user = processAccount(userId);
-      const debt = totalDebt(user);
-      const amount = Math.min(user.fichas, debt);
+  // ── Empréstimos: pagar uma dívida específica (banco, cassino, investimento ou pessoal vencido) ──
+  // arg aqui é a tela de origem ("carteira" ou "emprestimos"), que também
+  // decide o escopo: em "emprestimos" só entram empréstimos reais do banco;
+  // em "carteira" entram todas as dívidas.
+  if (action === "loan_pay_open") {
+    const origin = arg === "carteira" ? "carteira" : "emprestimos";
+    const scope = origin === "carteira" ? "all" : "bank";
+    const user = processAccount(userId);
+    const loans = scope === "bank" ? bankLoans(user) : activeLoans(user).sort((a, b) => a.takenAt - b.takenAt);
 
-      if (debt <= 0) {
-        await interaction.update(renderEmprestimos(userId) as never);
-        await toast(interaction, "Você não tem dívidas para pagar.", false);
-        return;
-      }
-      if (amount <= 0) {
-        await interaction.update(renderEmprestimos(userId) as never);
-        await toast(interaction, "Você não tem fichas suficientes para pagar nada agora.", false);
-        return;
-      }
-
-      const result = payDebts(userId, amount);
-      await interaction.update(renderEmprestimos(userId) as never);
-
-      if (!result) {
-        await toast(interaction, "Não foi possível processar o pagamento.", false);
-        return;
-      }
-
-      const msg = [
-        `Você pagou **${fmt(result.paid)} fichas** de dívida.`,
-        result.remainingDebt > 0
-          ? `Dívida restante: **${fmt(result.remainingDebt)} fichas**.`
-          : "Todas as suas dívidas foram quitadas! ✅",
-        result.unlocked ? "\n🔓 **Sua conta foi desbloqueada!**" : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-      await toast(interaction, msg, true);
+    if (loans.length === 0) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Você não tem dívidas para pagar.")]));
       return;
     }
+
+    const modal = new ModalBuilder()
+      .setCustomId(`banco:loan_pay_submit:${origin}:${userId}`)
+      .setTitle("Pagar Dívidas");
+    const indexInput = new TextInputBuilder()
+      .setCustomId("loan_index")
+      .setLabel(loans.length > 1 ? `Qual dívida pagar? (número: 1 a ${loans.length})` : "Qual dívida pagar? (número: 1)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(3)
+      .setPlaceholder("1");
+    const amountInput = new TextInputBuilder()
+      .setCustomId("loan_amount")
+      .setLabel("Quanto pagar")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder(String(loans[0]!.total));
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(indexInput),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(amountInput)
+    );
+    await interaction.showModal(modal);
     return;
   }
 
+  // ── Empréstimos pessoais: pagar direto pela Carteira ─────────────────────────
+  if (action === "peer_pay_open") {
+    const owed = activePeerLoansAsBorrower(userId);
+    if (owed.length === 0) {
+      await interaction.reply(
+        v2EphemeralReply([errorContainer("Você não tem empréstimos pessoais para pagar.")])
+      );
+      return;
+    }
+
+    const nicks = await Promise.all(
+      owed.map(async (l, i) => {
+        const u = await interaction.client.users.fetch(l.lenderId).catch(() => null);
+        return `${i + 1}) ${u?.username ?? "usuário"}`;
+      })
+    );
+    let label = `Pagar quem? ${nicks.join("  ")}`;
+    if (label.length > 45) label = label.slice(0, 44) + "…";
+
+    const modal = new ModalBuilder()
+      .setCustomId(`banco:peer_pay_submit:_:${userId}`)
+      .setTitle("Pagar Empréstimo Pessoal");
+    const indexInput = new TextInputBuilder()
+      .setCustomId("peer_index")
+      .setLabel(label)
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(3)
+      .setPlaceholder("1");
+    const amountInput = new TextInputBuilder()
+      .setCustomId("peer_amount")
+      .setLabel("Quanto pagar")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder(String(owed[0]!.totalOwed));
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(indexInput),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(amountInput)
+    );
+    await interaction.showModal(modal);
+    return;
+  }
 }
 
 export async function handleBancoModal(interaction: ModalSubmitInteraction, action: string, args: string[]) {
@@ -356,6 +401,109 @@ export async function handleBancoModal(interaction: ModalSubmitInteraction, acti
       ? `Você sacou **${fmt(result.amount)} fichas** e encerrou o investimento.`
       : `Você sacou **${fmt(result.amount)} fichas**. Saldo restante investido: **${fmt(result.remainingBalance)} fichas**.`;
     await toast(interaction, msg, true);
+    return;
+  }
+
+  if (action === "loan_pay_submit") {
+    // customId: banco:loan_pay_submit:<origin>:<userId>
+    const origin = args[0] === "carteira" ? "carteira" : "emprestimos";
+    const scope = origin === "carteira" ? "all" : "bank";
+    const index = parseAmount(interaction.fields.getTextInputValue("loan_index"));
+    const amount = parseAmount(interaction.fields.getTextInputValue("loan_amount"));
+    const render = origin === "carteira" ? renderCarteira : renderEmprestimos;
+
+    if (index === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Número de dívida inválido.")]));
+      return;
+    }
+    if (amount === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido.")]));
+      return;
+    }
+
+    const result = payLoanByIndex(userId, index, amount, scope);
+    await interaction.update(render(userId) as never);
+
+    if (!result.ok) {
+      const reason =
+        result.reason === "not_found"
+          ? "Essa dívida não existe (confira o número na lista)."
+          : result.reason === "insufficient"
+            ? "Você não tem fichas suficientes."
+            : "Valor inválido.";
+      await toast(interaction, reason, false);
+      return;
+    }
+
+    const msg = [
+      `Você pagou **${fmt(result.paid)} fichas** dessa dívida.`,
+      result.finished ? "Essa dívida foi quitada! ✅" : `Ainda falta **${fmt(result.remaining)} fichas** nela.`,
+      result.unlocked ? "\n🔓 **Sua conta foi desbloqueada!**" : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    await toast(interaction, msg, true);
+    return;
+  }
+
+  if (action === "peer_pay_submit") {
+    // customId: banco:peer_pay_submit:_:<userId>
+    const index = parseAmount(interaction.fields.getTextInputValue("peer_index"));
+    const amount = parseAmount(interaction.fields.getTextInputValue("peer_amount"));
+
+    if (index === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Número inválido — confira a lista de quem você deve.")]));
+      return;
+    }
+    if (amount === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido.")]));
+      return;
+    }
+
+    const owed = activePeerLoansAsBorrower(userId);
+    const target = owed[index - 1];
+
+    const result = payPeerLoanByIndex(userId, index, amount);
+    await interaction.update(renderCarteira(userId) as never);
+
+    if (!result.ok) {
+      const reason =
+        result.reason === "not_found"
+          ? "Esse empréstimo não existe (confira o número na lista)."
+          : result.reason === "not_active"
+            ? "Esse empréstimo não está mais ativo."
+            : result.reason === "insufficient"
+              ? "Você não tem fichas suficientes."
+              : "Valor inválido.";
+      await toast(interaction, reason, false);
+      return;
+    }
+
+    await toast(
+      interaction,
+      result.finished
+        ? `Você pagou **${fmt(result.paid)} fichas** e quitou totalmente essa dívida.`
+        : `Você pagou **${fmt(result.paid)} fichas**. Ainda falta **${fmt(result.remaining)} fichas**.`,
+      true
+    );
+
+    if (target) {
+      await interaction.client.users
+        .fetch(target.lenderId)
+        .then((lender) =>
+          lender.send(
+            v2Reply([
+              successContainer(
+                "Pagamento recebido!",
+                `<@${userId}> te pagou **${fmt(result.paid)} fichas** do empréstimo pessoal. ${
+                  result.finished ? "Dívida quitada!" : `Ainda falta ${fmt(result.remaining)} fichas.`
+                }`
+              ),
+            ])
+          )
+        )
+        .catch(() => null);
+    }
     return;
   }
 }

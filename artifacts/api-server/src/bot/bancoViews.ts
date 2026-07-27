@@ -7,6 +7,7 @@ import {
 import {
   processAccount,
   activeLoans,
+  bankLoans,
   totalDebt,
   MAX_LOAN_AMOUNT,
   INVITE_VALUE,
@@ -20,8 +21,9 @@ import {
   getMarketHistory,
   nextMarketTick,
   NEGATIVE_STREAK_LIMIT,
-  peerLoansAsBorrower,
+  activePeerLoansAsBorrower,
   peerLoansAsLender,
+  forcedDebtLabel,
 } from "./economyStore";
 
 function fmt(n: number): string {
@@ -90,8 +92,8 @@ export function renderHome(userId: string) {
 
 export function renderEmprestimos(userId: string) {
   const user = processAccount(userId);
-  const loans = activeLoans(user);
-  const debt = totalDebt(user);
+  const loans = bankLoans(user);
+  const debt = loans.reduce((sum, l) => sum + l.total, 0);
   const now = Date.now();
 
   const lines: string[] = [];
@@ -119,18 +121,24 @@ export function renderEmprestimos(userId: string) {
     );
   }
 
-  lines.push(`${E.ticketUser} **Empréstimos pendentes (${loans.length}):**`);
+  lines.push(`${E.ticketUser} **Empréstimos do banco pendentes (${loans.length}):**`);
   if (loans.length === 0) {
     lines.push("> Nenhum empréstimo pendente no momento.");
   } else {
-    for (const loan of loans) {
+    loans.forEach((loan, i) => {
       const overdue = loan.dueAt < now;
       const dueStr = `<t:${Math.floor(loan.dueAt / 1000)}:R>`;
-      lines.push(`> ${fmt(loan.total)} fichas a pagar em até ${dueStr}${overdue ? " ⚠️ **ATRASADO**" : ""}`);
-    }
+      lines.push(
+        `> **${i + 1}.** ${fmt(loan.total)} fichas a pagar em até ${dueStr}${overdue ? " ⚠️ **ATRASADO**" : ""}`
+      );
+    });
   }
 
-  lines.push("", `${E.clock} **Dívida pendente:** ${fmt(debt)} fichas`);
+  lines.push(
+    "",
+    `${E.clock} **Dívida de empréstimos do banco:** ${fmt(debt)} fichas`,
+    "> Dívidas de cassino, investimento e empréstimo pessoal ficam na Carteira."
+  );
 
   const container = infoContainer({
     title: `${E.suporte} Empréstimos`,
@@ -143,7 +151,7 @@ export function renderEmprestimos(userId: string) {
     buttons.push(secondaryButton(bid("loan_open", userId), "Empréstimo").setDisabled(!canTakeMore));
   }
   if (debt > 0) {
-    buttons.push(secondaryButton(bid("loan", userId, "pagar"), "Pagar Dívidas"));
+    buttons.push(secondaryButton(bid("loan_pay_open", userId, "emprestimos"), "Pagar Dívidas"));
   }
   buttons.push(secondaryButton(bid("home", userId), "Voltar"));
 
@@ -179,7 +187,7 @@ export function renderConversao(userId: string) {
 
 export function renderCarteira(userId: string) {
   const user = processAccount(userId);
-  const loans = activeLoans(user);
+  const loans = activeLoans(user).sort((a, b) => a.takenAt - b.takenAt);
   const now = Date.now();
 
   const lines: string[] = [
@@ -187,17 +195,21 @@ export function renderCarteira(userId: string) {
     `${E.poupanca} **poupança:** ${fmt(user.fichas)}`,
     `${E.suporte} **Conta em dia:** ${user.bankLocked ? "Não" : "Sim"}`,
     "",
-    `${E.poupanca} **Dívidas pendentes (${loans.length})**`,
+    `${E.poupanca} **Dívidas pendentes (${loans.length})** — inclui empréstimos do banco, cassino e investimento`,
   ];
 
   if (loans.length === 0) {
     lines.push("* Nenhuma dívida pendente");
   } else {
-    for (const loan of loans) {
+    loans.forEach((loan, i) => {
       const overdue = loan.dueAt < now;
       const dueStr = `<t:${Math.floor(loan.dueAt / 1000)}:R>`;
-      lines.push(`* ${fmt(loan.total)} fichas, tempo para pagamento ${dueStr}${overdue ? " ⚠️ **ATRASADO**" : ""}`);
-    }
+      const label = forcedDebtLabel(loan.id);
+      const tag = label ? ` (${label})` : "";
+      lines.push(
+        `* **${i + 1}.** ${fmt(loan.total)} fichas${tag}, tempo para pagamento ${dueStr}${overdue ? " ⚠️ **ATRASADO**" : ""}`
+      );
+    });
   }
 
   const inv = user.investment;
@@ -205,22 +217,23 @@ export function renderCarteira(userId: string) {
     const sign = inv.balance >= 0 ? "+" : "";
     lines.push(
       "",
-      `📈 **Investimento em andamento:** ${sign}${fmt(inv.balance)} fichas (depositado: ${fmt(inv.deposited)})`
+      `${E.parceria} **Investimento em andamento:** ${sign}${fmt(inv.balance)} fichas`,
+      `Fichas depositadas: ${fmt(inv.deposited)}`
     );
   }
 
-  const owed = peerLoansAsBorrower(userId).filter((l) => l.status === "active");
+  const owed = activePeerLoansAsBorrower(userId);
   if (owed.length > 0) {
-    lines.push("", `💸 **Empréstimos pessoais que você deve (${owed.length}):**`);
-    for (const l of owed) {
+    lines.push("", `${E.banco} **Empréstimos pessoais (${owed.length}):**`);
+    owed.forEach((l, i) => {
       const dueStr = l.dueAt ? `<t:${Math.floor(l.dueAt / 1000)}:R>` : "—";
-      lines.push(`* ${fmt(l.totalOwed)} fichas para <@${l.lenderId}>, vira dívida no banco ${dueStr}`);
-    }
+      lines.push(`* <@${l.lenderId}>: ${fmt(l.totalOwed)} fichas a pagar, vira dívida no banco ${dueStr}`);
+    });
   }
 
   const lent = peerLoansAsLender(userId).filter((l) => l.status === "pending" || l.status === "active");
   if (lent.length > 0) {
-    lines.push("", `🤝 **Empréstimos pessoais que você concedeu (${lent.length}):**`);
+    lines.push("", `${E.banco} **Empréstimos concebidos:**`);
     for (const l of lent) {
       const statusStr = l.status === "pending" ? "aguardando resposta" : `${fmt(l.totalOwed)} fichas a receber`;
       lines.push(`* <@${l.borrowerId}>: ${statusStr}`);
@@ -232,7 +245,16 @@ export function renderCarteira(userId: string) {
     description: lines.join("\n"),
   });
 
-  return screen(container, row(secondaryButton(bid("home", userId), "Voltar")));
+  const buttons: ReturnType<typeof secondaryButton>[] = [];
+  if (loans.length > 0) {
+    buttons.push(secondaryButton(bid("loan_pay_open", userId, "carteira"), "Pagar Dívidas"));
+  }
+  if (owed.length > 0) {
+    buttons.push(secondaryButton(bid("peer_pay_open", userId), "Pagar Empréstimo Pessoal"));
+  }
+  buttons.push(secondaryButton(bid("home", userId), "Voltar"));
+
+  return screen(container, row(...buttons));
 }
 
 // ─── Investir ──────────────────────────────────────────────────────────────────
@@ -280,8 +302,8 @@ export function renderInvestir(userId: string) {
       const remaining = Math.max(0, NEGATIVE_STREAK_LIMIT - inv.negativeStreak);
       lines.push(
         "",
-        "**Você está devendo neste investimento.** Deposite mais para tentar recuperar ou saque para encerrar.",
-        `⚠️ Se continuar negativo por mais **${remaining}** variaç${remaining === 1 ? "ão" : "ões"}, essa dívida é cobrada na hora (vira empréstimo) — o investimento continua ativo.`
+        "**Você está devendo neste investimento.**",
+        `Deposite mais para tentar recuperar ou saque para encerrar. Se continuar negativo por mais de ${remaining} variaç${remaining === 1 ? "ão" : "ões"}, essa dívida será cobrada em seu banco.`
       );
     }
 

@@ -12,6 +12,7 @@ const E = {
   announce: "<:ticket_announce:1530817537007161374>",
   ticketUser: "<:ticket_user:1530817417842921492>",
   ticket: "<:ticket:1508274275730063360>",
+  em: "<:em:1531074006978138292>",
 };
 
 // TODO: ainda não temos o arquivo da logo Brazino 777 salvo no repositório —
@@ -78,11 +79,11 @@ export function renderRoleta(userId: string) {
     lines = [
       `${E.announce}`,
       "* O jogo funciona da seguinte forma:",
-      `  * A roleta consiste em números de 1 a ${ROLETA_NUMEROS} (brancos) e (pretos), você deve escolher uma cor e um número da sorte; se sua cor for onde a bola branca parou mas não em cima do seu número da sorte, você ganha o dobro do que apostou mas, se for o contrário você perde o valor que apostou; se fosse sua cor e o número da sorte que tivesse caído, o valor que você apostou seria multiplicado por 100 mas, se fosse o contrário a cor oposta e o mesmo número da sorte, o valor que você apostou seria multiplicado por 100 e descontado da sua banca, e caso a sua banca não consiga tancar esse valor, pegamos o valor que estiver no seu banco mas, se não tiver saldo suficiente em seu banco vira dívida em seu nome.`,
+      `  * A roleta consiste em números de 1 a ${ROLETA_NUMEROS} (brancos) e (pretos), você deve escolher uma cor e um número da sorte; se sua cor for onde a bola parou mas não em cima do seu número da sorte, você ganha o dobro do que apostou mas, se for o contrário você perde o valor que apostou; se sua cor for onde a bola parou e o número for vizinho (o anterior ou o seguinte) do seu número da sorte, o valor que você apostou é multiplicado por 10 mas, se for o contrário (a cor oposta e o número vizinho), o valor apostado é multiplicado por 10 e descontado da sua banca, e caso a banca não consiga tancar, pegamos o valor que estiver no seu banco e, se não tiver saldo suficiente, vira dívida na sua carteira; se fosse sua cor e o número da sorte que tivesse caído, o valor que você apostou seria multiplicado por 100 mas, se fosse o contrário a cor oposta e o mesmo número da sorte, o valor que você apostou seria multiplicado por 100 e descontado da sua banca, e caso a sua banca não consiga tancar esse valor, pegamos o valor que estiver no seu banco mas, se não tiver saldo suficiente em seu banco vira dívida em seu nome.`,
       "",
       `${E.ticketUser} Banca: ${fmt(cassino.banca)} fichas`,
       `${E.ticket} Valor por rodada: ${fmt(cassino.betPerRound)} fichas`,
-      `👛 **Saldo na carteira:** ${fmt(user.fichas)} fichas`,
+      `${E.em} **Saldo na carteira:** ${fmt(user.fichas)} fichas`,
     ];
   }
 
