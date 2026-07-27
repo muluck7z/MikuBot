@@ -12,7 +12,8 @@ import {
   renderEmprestimos,
   renderConversao,
   renderCarteira,
-  renderInvestir,
+  renderSalas,
+  renderInvestirSala,
 } from "../bancoViews";
 import { scheduleInvestAutoRefresh, clearInvestAutoRefresh } from "../investAutoRefresh";
 import {
@@ -33,6 +34,13 @@ import {
 
 function fmt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
+}
+
+/** Converte o argumento de sala (vindo do customId) num número de 1 a 4, ou null se inválido. */
+function parseRoom(raw: string | undefined): number | null {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 4) return null;
+  return n;
 }
 
 /** Converte o texto digitado pelo usuário num inteiro positivo (aceita "50.000" ou "50000"). */
@@ -88,8 +96,18 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
     return;
   }
   if (action === "investir") {
-    await interaction.update(renderInvestir(userId) as never);
-    scheduleInvestAutoRefresh(interaction, userId);
+    clearInvestAutoRefresh(interaction.message?.id);
+    await interaction.update(renderSalas(userId) as never);
+    return;
+  }
+  if (action === "sala") {
+    const room = parseRoom(arg);
+    if (room === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Sala inválida.")]));
+      return;
+    }
+    await interaction.update(renderInvestirSala(userId, room) as never);
+    scheduleInvestAutoRefresh(interaction, userId, room);
     return;
   }
 
@@ -121,7 +139,12 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
     return;
   }
   if (action === "inv_open") {
-    const modal = new ModalBuilder().setCustomId(`banco:inv_submit:_:${userId}`).setTitle("Investir");
+    const room = parseRoom(arg);
+    if (room === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Sala inválida.")]));
+      return;
+    }
+    const modal = new ModalBuilder().setCustomId(`banco:inv_submit:${room}:${userId}`).setTitle(`Investir — Sala ${room}`);
     const input = new TextInputBuilder()
       .setCustomId("inv_amount")
       .setLabel("Quanto investir")
@@ -134,32 +157,37 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
     return;
   }
   if (action === "sac_open") {
+    const room = parseRoom(arg);
+    if (room === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Sala inválida.")]));
+      return;
+    }
     const user = processAccount(userId);
-    const inv = user.investment;
+    const inv = user.investments[room - 1]!;
 
     if (!inv.active) {
       await interaction.reply(
-        v2EphemeralReply([errorContainer("Você não tem nenhum investimento ativo.")])
+        v2EphemeralReply([errorContainer("Você não tem nenhum investimento ativo nessa sala.")])
       );
       return;
     }
 
     if (inv.balance <= 0) {
       // saldo negativo/zerado: não dá pra sacar parte, só encerrar tudo
-      const result = withdrawInvestment(userId);
+      const result = withdrawInvestment(userId, room);
       clearInvestAutoRefresh(interaction.message?.id);
-      await interaction.update(renderInvestir(userId) as never);
+      await interaction.update(renderInvestirSala(userId, room) as never);
       if (result.ok) {
         const msg =
           result.amount >= 0
-            ? `Você sacou **${fmt(result.amount)} fichas** do seu investimento.`
-            : `Seu investimento fechou negativo. Você ficou devendo **${fmt(Math.abs(result.amount))} fichas**.`;
+            ? `Você sacou **${fmt(result.amount)} fichas** do seu investimento na Sala ${room}.`
+            : `Seu investimento na Sala ${room} fechou negativo. Você ficou devendo **${fmt(Math.abs(result.amount))} fichas**.`;
         await toast(interaction, msg, result.amount >= 0);
       }
       return;
     }
 
-    const modal = new ModalBuilder().setCustomId(`banco:sac_submit:_:${userId}`).setTitle("Sacar Investimento");
+    const modal = new ModalBuilder().setCustomId(`banco:sac_submit:${room}:${userId}`).setTitle(`Sacar — Sala ${room}`);
     const input = new TextInputBuilder()
       .setCustomId("sac_amount")
       .setLabel(`Quanto sacar (disponível: ${fmt(inv.balance)})`)
@@ -337,6 +365,11 @@ export async function handleBancoModal(interaction: ModalSubmitInteraction, acti
   }
 
   if (action === "inv_submit") {
+    const room = parseRoom(args[0]);
+    if (room === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Sala inválida.")]));
+      return;
+    }
     const user = processAccount(userId);
     const raw = interaction.fields.getTextInputValue("inv_amount");
     const amount = parseAmount(raw);
@@ -348,9 +381,9 @@ export async function handleBancoModal(interaction: ModalSubmitInteraction, acti
       return;
     }
 
-    const result = investFichas(userId, amount);
-    await interaction.update(renderInvestir(userId) as never);
-    scheduleInvestAutoRefresh(interaction, userId);
+    const result = investFichas(userId, room, amount);
+    await interaction.update(renderInvestirSala(userId, room) as never);
+    scheduleInvestAutoRefresh(interaction, userId, room);
 
     if (!result.ok) {
       const reason =
@@ -361,13 +394,18 @@ export async function handleBancoModal(interaction: ModalSubmitInteraction, acti
       return;
     }
 
-    await toast(interaction, `Você investiu **${fmt(amount)} fichas**.`, true);
+    await toast(interaction, `Você investiu **${fmt(amount)} fichas** na Sala ${room}.`, true);
     return;
   }
 
   if (action === "sac_submit") {
+    const room = parseRoom(args[0]);
+    if (room === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Sala inválida.")]));
+      return;
+    }
     const user = processAccount(userId);
-    const inv = user.investment;
+    const inv = user.investments[room - 1]!;
     const raw = interaction.fields.getTextInputValue("sac_amount");
     const amount = parseAmount(raw);
 
@@ -378,18 +416,18 @@ export async function handleBancoModal(interaction: ModalSubmitInteraction, acti
       return;
     }
 
-    const result = withdrawPartial(userId, amount);
-    await interaction.update(renderInvestir(userId) as never);
+    const result = withdrawPartial(userId, room, amount);
+    await interaction.update(renderInvestirSala(userId, room) as never);
     if (result.ok && result.closed) {
       clearInvestAutoRefresh(interaction.message?.id);
     } else {
-      scheduleInvestAutoRefresh(interaction, userId);
+      scheduleInvestAutoRefresh(interaction, userId, room);
     }
 
     if (!result.ok) {
       const reason =
         result.reason === "not_active"
-          ? "Você não tem nenhum investimento ativo."
+          ? "Você não tem nenhum investimento ativo nessa sala."
           : result.reason === "negative_balance"
             ? "Seu investimento está negativo — encerre-o pelo botão Sacar para quitar."
             : `Valor inválido. Você tem ${fmt(inv.balance)} ficha(s) disponível(is) para saque.`;
@@ -398,8 +436,8 @@ export async function handleBancoModal(interaction: ModalSubmitInteraction, acti
     }
 
     const msg = result.closed
-      ? `Você sacou **${fmt(result.amount)} fichas** e encerrou o investimento.`
-      : `Você sacou **${fmt(result.amount)} fichas**. Saldo restante investido: **${fmt(result.remainingBalance)} fichas**.`;
+      ? `Você sacou **${fmt(result.amount)} fichas** e encerrou o investimento na Sala ${room}.`
+      : `Você sacou **${fmt(result.amount)} fichas** na Sala ${room}. Saldo restante investido: **${fmt(result.remainingBalance)} fichas**.`;
     await toast(interaction, msg, true);
     return;
   }

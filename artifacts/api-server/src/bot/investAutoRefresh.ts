@@ -1,5 +1,5 @@
 import type { ButtonInteraction, ModalSubmitInteraction } from "discord.js";
-import { renderInvestir } from "./bancoViews";
+import { renderInvestirSala } from "./bancoViews";
 import { processAccount } from "./economyStore";
 
 /**
@@ -35,10 +35,11 @@ export function clearInvestAutoRefresh(messageId: string | undefined | null): vo
   }
 }
 
-/** (Re)inicia o auto-refresh de 10 em 10s pra mensagem da interação atual. */
+/** (Re)inicia o auto-refresh de 10 em 10s pra mensagem da interação atual, numa sala específica. */
 export function scheduleInvestAutoRefresh(
   interaction: ButtonInteraction | ModalSubmitInteraction,
-  userId: string
+  userId: string,
+  room: number
 ): void {
   const message = interaction.message;
   if (!message) return;
@@ -53,10 +54,10 @@ export function scheduleInvestAutoRefresh(
         entry.ticks += 1;
 
         const user = processAccount(userId);
-        const stillRelevant = user.investment.active && !user.bankLocked;
+        const stillRelevant = user.investments[room - 1]!.active && !user.bankLocked;
 
         try {
-          await message.edit(renderInvestir(userId) as never);
+          await message.edit(renderInvestirSala(userId, room) as never);
         } catch {
           // mensagem apagada, sem permissão, canal sumiu, etc — desiste
           clearInvestAutoRefresh(message.id);

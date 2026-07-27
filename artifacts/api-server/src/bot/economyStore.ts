@@ -58,6 +58,32 @@ export interface InvestmentPortfolio {
 // quantas variações recentes guardamos para exibir o histórico ao usuário
 const INVEST_HISTORY_LENGTH = 10;
 
+// ─── Salas de investimento ──────────────────────────────────────────────────
+//
+// Existem 4 "salas" de investimento independentes (1 a 4). Cada uma tem seu
+// próprio mercado (a variação de cada bucket de tempo é diferente por sala,
+// mas ainda determinística — todo mundo vê a mesma variação numa mesma sala)
+// e seu próprio portfólio por usuário. Um usuário pode investir em quantas
+// salas quiser ao mesmo tempo.
+export const INVESTMENT_ROOMS = 4;
+export type InvestmentRoom = 1 | 2 | 3 | 4;
+
+function isValidRoom(room: number): room is InvestmentRoom {
+  return Number.isInteger(room) && room >= 1 && room <= INVESTMENT_ROOMS;
+}
+
+function freshInvestmentPortfolio(): InvestmentPortfolio {
+  return {
+    active: false,
+    deposited: 0,
+    balance: 0,
+    lastUpdate: Date.now(),
+    lastChangePct: 0,
+    history: [],
+    negativeStreak: 0,
+  };
+}
+
 /**
  * Empréstimo entre dois usuários (não é dinheiro criado pelo banco — sai da
  * carteira de quem empresta). Ver seção "Empréstimos entre usuários" abaixo.
@@ -102,7 +128,7 @@ export interface UserEconomy {
   fichas: number;
   pendingInvites: number; // invites não convertidos
   loans: Loan[];
-  investment: InvestmentPortfolio;
+  investments: InvestmentPortfolio[]; // índice 0..3 = Sala 1..4
   cassino: CassinoState;
   bankLocked: boolean;
   lockDebt: number; // dívida total no momento em que a conta foi fechada
@@ -170,15 +196,7 @@ function freshUser(): UserEconomy {
     fichas: 0,
     pendingInvites: 0,
     loans: [],
-    investment: {
-      active: false,
-      deposited: 0,
-      balance: 0,
-      lastUpdate: Date.now(),
-      lastChangePct: 0,
-      history: [],
-      negativeStreak: 0,
-    },
+    investments: Array.from({ length: INVESTMENT_ROOMS }, () => freshInvestmentPortfolio()),
     cassino: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null },
     bankLocked: false,
     lockDebt: 0,
@@ -193,12 +211,22 @@ export function getUser(userId: string): UserEconomy {
     _data[userId] = freshUser();
   }
   // Compatibilidade com dados antigos (retrocompatibilidade defensiva)
-  const u = _data[userId]!;
-  if (!u.investment) {
-    u.investment = { active: false, deposited: 0, balance: 0, lastUpdate: Date.now(), lastChangePct: 0, history: [], negativeStreak: 0 };
+  const u = _data[userId]! as UserEconomy & { investment?: InvestmentPortfolio };
+  if (!u.investments) {
+    // Dados de antes das 4 salas: o investimento único vira a Sala 1.
+    u.investments = [
+      u.investment ?? freshInvestmentPortfolio(),
+      freshInvestmentPortfolio(),
+      freshInvestmentPortfolio(),
+      freshInvestmentPortfolio(),
+    ];
+    delete u.investment;
   }
-  if (!u.investment.history) u.investment.history = [];
-  if (u.investment.negativeStreak === undefined) u.investment.negativeStreak = 0;
+  for (let i = 0; i < INVESTMENT_ROOMS; i++) {
+    if (!u.investments[i]) u.investments[i] = freshInvestmentPortfolio();
+    if (!u.investments[i]!.history) u.investments[i]!.history = [];
+    if (u.investments[i]!.negativeStreak === undefined) u.investments[i]!.negativeStreak = 0;
+  }
   if (u.bankLocked === undefined) u.bankLocked = false;
   if (u.lockDebt === undefined) u.lockDebt = 0;
   if (u.unlockPaid === undefined) u.unlockPaid = 0;
@@ -206,6 +234,21 @@ export function getUser(userId: string): UserEconomy {
   if (!u.cassino) u.cassino = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null };
   if (u.cassino.lastResult === undefined) u.cassino.lastResult = null;
   return u;
+}
+
+/** Retorna o portfólio de investimento de uma sala específica (1 a 4) de um usuário. */
+export function getInvestment(user: UserEconomy, room: number): InvestmentPortfolio {
+  if (!isValidRoom(room)) throw new Error(`Sala de investimento inválida: ${room}`);
+  return user.investments[room - 1]!;
+}
+
+/** Lista as salas (1 a 4) em que o usuário tem investimento ativo no momento. */
+export function activeInvestmentRooms(user: UserEconomy): InvestmentRoom[] {
+  const rooms: InvestmentRoom[] = [];
+  for (let r = 1; r <= INVESTMENT_ROOMS; r++) {
+    if (getInvestment(user, r).active) rooms.push(r as InvestmentRoom);
+  }
+  return rooms;
 }
 
 export function activeLoans(user: UserEconomy): Loan[] {
@@ -455,16 +498,26 @@ function seededRandom(seed: number): number {
   return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
 }
 
-/** Variação do mercado para um "bucket" de 10 minutos específico — igual para todos. */
-function marketPctForBucket(bucket: number): number {
-  const r1 = seededRandom(bucket);
+// "Sal" por sala, pra decorrelacionar completamente a sequência de cada
+// mercado — sem isso, salas diferentes só deslocariam o mesmo padrão.
+const ROOM_SALT = [0x9e3779b9, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f];
+
+function roomSeed(bucket: number, room: number): number {
+  const salt = ROOM_SALT[(room - 1) % ROOM_SALT.length]!;
+  return (bucket ^ Math.imul(salt, room)) >>> 0;
+}
+
+/** Variação do mercado de uma sala para um "bucket" de tempo específico — igual para todos os usuários da mesma sala. */
+function marketPctForBucket(bucket: number, room: number = 1): number {
+  const seed = roomSeed(bucket, room);
+  const r1 = seededRandom(seed);
   // Proporções pedidas eram 35 / 35 / 25 / 15 (somam 110) — normalizadas para somar 100%:
   // ~31.82% / ~31.82% / ~22.73% / ~13.64%
   if (r1 < 0.318182) return 0.1; // subiu 10%
   if (r1 < 0.636364) return -0.1; // caiu 10%
 
-  const r2 = seededRandom(bucket ^ 0x5bd1e995); // magnitude, decorrelacionada
-  const r3 = seededRandom(bucket ^ 0x27d4eb2f); // sinal, decorrelacionada
+  const r2 = seededRandom(seed ^ 0x5bd1e995); // magnitude, decorrelacionada
+  const r3 = seededRandom(seed ^ 0x27d4eb2f); // sinal, decorrelacionada
   const sign = r3 < 0.5 ? -1 : 1;
 
   if (r1 < 0.863636) {
@@ -478,13 +531,13 @@ function marketPctForBucket(bucket: number): number {
   return sign * magnitude;
 }
 
-/** Retorna as últimas `count` variações do mercado (a mesma pra todo mundo), da mais antiga pra mais recente. */
-export function getMarketHistory(count: number = 30): number[] {
+/** Retorna as últimas `count` variações do mercado de uma sala (a mesma pra todo mundo naquela sala), da mais antiga pra mais recente. */
+export function getMarketHistory(count: number = 30, room: number = 1): number[] {
   const now = Date.now();
   const currentBucket = Math.floor(now / INVEST_TICK_MS);
   const history: number[] = [];
   for (let i = count - 1; i >= 0; i--) {
-    history.push(marketPctForBucket(currentBucket - i));
+    history.push(marketPctForBucket(currentBucket - i, room));
   }
   return history;
 }
@@ -494,9 +547,9 @@ export function nextMarketTick(): number {
   return (Math.floor(Date.now() / INVEST_TICK_MS) + 1) * INVEST_TICK_MS;
 }
 
-/** Simula as variações de mercado (globais) que aconteceram desde a última atualização. */
-function updateInvestment(user: UserEconomy): void {
-  const inv = user.investment;
+/** Simula as variações de mercado de uma sala que aconteceram desde a última atualização. */
+function updateInvestmentRoom(user: UserEconomy, room: number): void {
+  const inv = getInvestment(user, room);
   if (!inv.active) return;
 
   const now = Date.now();
@@ -512,7 +565,7 @@ function updateInvestment(user: UserEconomy): void {
 
   let lastPct = inv.lastChangePct;
   for (let b = lastBucket + 1; b <= lastBucket + ticks; b++) {
-    lastPct = marketPctForBucket(b);
+    lastPct = marketPctForBucket(b, room);
     const delta = Math.round(inv.deposited * lastPct);
     inv.balance += delta;
     inv.history.push(lastPct);
@@ -523,7 +576,7 @@ function updateInvestment(user: UserEconomy): void {
         // Saldo ficou negativo por variações demais seguidas: a dívida é
         // cobrada na hora (entra no sistema de empréstimos), mas o
         // investimento continua ativo normalmente a partir de 0.
-        addForcedDebt(user, -inv.balance, "investimento");
+        addForcedDebt(user, -inv.balance, "investimento", room);
         inv.balance = 0;
         inv.negativeStreak = 0;
       }
@@ -538,18 +591,26 @@ function updateInvestment(user: UserEconomy): void {
   inv.lastUpdate = (lastBucket + ticks) * INVEST_TICK_MS;
 }
 
+/** Simula as variações de mercado de todas as 4 salas. */
+function updateInvestment(user: UserEconomy): void {
+  for (let room = 1; room <= INVESTMENT_ROOMS; room++) {
+    updateInvestmentRoom(user, room);
+  }
+}
+
 export type InvestResult =
   | { ok: true; portfolio: InvestmentPortfolio }
   | { ok: false; reason: "locked" | "insufficient" };
 
-/** Investe (ou adiciona a um investimento já ativo). */
-export function investFichas(userId: string, amount: number): InvestResult {
+/** Investe (ou adiciona a um investimento já ativo) numa sala específica (1 a 4). */
+export function investFichas(userId: string, room: number, amount: number): InvestResult {
   const user = processAccount(userId);
   if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "insufficient" };
+  if (!isValidRoom(room)) return { ok: false, reason: "insufficient" };
   if (user.bankLocked) return { ok: false, reason: "locked" };
   if (user.fichas < amount) return { ok: false, reason: "insufficient" };
 
-  const inv = user.investment;
+  const inv = getInvestment(user, room);
   user.fichas -= amount;
   if (!inv.active) {
     inv.active = true;
@@ -571,10 +632,11 @@ export type WithdrawResult =
   | { ok: true; amount: number }
   | { ok: false; reason: "not_active" };
 
-/** Saca todo o valor investido (pode ser negativo — o usuário fica devendo). */
-export function withdrawInvestment(userId: string): WithdrawResult {
+/** Saca todo o valor investido de uma sala (pode ser negativo — o usuário fica devendo). */
+export function withdrawInvestment(userId: string, room: number): WithdrawResult {
   const user = processAccount(userId);
-  const inv = user.investment;
+  if (!isValidRoom(room)) return { ok: false, reason: "not_active" };
+  const inv = getInvestment(user, room);
   if (!inv.active) return { ok: false, reason: "not_active" };
 
   const amount = inv.balance;
@@ -602,9 +664,10 @@ export type WithdrawPartialResult =
  * Não é possível sacar parcialmente quando o saldo já está negativo — nesse
  * caso só dá pra encerrar o investimento por completo (ver withdrawInvestment).
  */
-export function withdrawPartial(userId: string, amount: number): WithdrawPartialResult {
+export function withdrawPartial(userId: string, room: number, amount: number): WithdrawPartialResult {
   const user = processAccount(userId);
-  const inv = user.investment;
+  if (!isValidRoom(room)) return { ok: false, reason: "not_active" };
+  const inv = getInvestment(user, room);
   if (!inv.active) return { ok: false, reason: "not_active" };
   if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "invalid_amount" };
   if (inv.balance <= 0) return { ok: false, reason: "negative_balance" };
@@ -899,12 +962,13 @@ export function adjustFichas(userId: string, amount: number): AdjustResult {
 export type ForcedDebtSource = "cassino" | "investimento" | "pessoal";
 
 /** Adiciona uma dívida "forçada" ao nome do usuário — ex: perda no cassino, saldo negativo no investimento, ou empréstimo pessoal vencido. */
-function addForcedDebt(user: UserEconomy, amount: number, source: ForcedDebtSource): void {
+function addForcedDebt(user: UserEconomy, amount: number, source: ForcedDebtSource, room?: number): void {
   if (amount <= 0) return;
   const now = Date.now();
   const dueAt = now + LOAN_DUE_DAYS * DAY_MS;
+  const roomTag = source === "investimento" && room ? `r${room}-` : "";
   user.loans.push({
-    id: `${source}-${now}-${Math.floor(Math.random() * 1000)}`,
+    id: `${source}-${roomTag}${now}-${Math.floor(Math.random() * 1000)}`,
     amount,
     total: amount,
     takenAt: now,
@@ -923,6 +987,8 @@ function isNumeroVizinho(a: number, b: number, max: number): boolean {
 /** Rótulo amigável pra exibir ao lado de uma dívida forçada, a partir do prefixo do seu id (ver addForcedDebt). */
 export function forcedDebtLabel(loanId: string): string | null {
   if (loanId.startsWith("cassino-")) return "cassino";
+  const roomMatch = loanId.match(/^investimento-r(\d)-/);
+  if (roomMatch) return `Investimento do banco (Sala ${roomMatch[1]})`;
   if (loanId.startsWith("investimento-")) return "Investimento do banco";
   if (loanId.startsWith("pessoal-")) return "empréstimo pessoal vencido";
   return null;

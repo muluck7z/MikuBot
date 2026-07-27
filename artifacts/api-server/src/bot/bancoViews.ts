@@ -24,6 +24,9 @@ import {
   activePeerLoansAsBorrower,
   peerLoansAsLender,
   forcedDebtLabel,
+  INVESTMENT_ROOMS,
+  getInvestment,
+  activeInvestmentRooms,
 } from "./economyStore";
 
 function fmt(n: number): string {
@@ -212,14 +215,16 @@ export function renderCarteira(userId: string) {
     });
   }
 
-  const inv = user.investment;
-  if (inv.active) {
-    const sign = inv.balance >= 0 ? "+" : "";
-    lines.push(
-      "",
-      `${E.parceria} **Investimento em andamento:** ${sign}${fmt(inv.balance)} fichas`,
-      `Fichas depositadas: ${fmt(inv.deposited)}`
-    );
+  const investedRooms = activeInvestmentRooms(user);
+  if (investedRooms.length > 0) {
+    lines.push("", `${E.parceria} **Investimentos em andamento (${investedRooms.length}):**`);
+    for (const room of investedRooms) {
+      const inv = getInvestment(user, room);
+      const sign = inv.balance >= 0 ? "+" : "";
+      lines.push(
+        `* **Sala ${room}:** ${sign}${fmt(inv.balance)} fichas (depositado: ${fmt(inv.deposited)})`
+      );
+    }
   }
 
   const owed = activePeerLoansAsBorrower(userId);
@@ -257,11 +262,53 @@ export function renderCarteira(userId: string) {
   return screen(container, row(...buttons));
 }
 
-// ─── Investir ──────────────────────────────────────────────────────────────────
+// ─── Investir (lista de salas) ──────────────────────────────────────────────────
 
-export function renderInvestir(userId: string) {
+/** Tela com as 4 salas de investimento — cada uma com seu próprio mercado/orçamento. */
+export function renderSalas(userId: string) {
   const user = processAccount(userId);
-  const inv = user.investment;
+
+  const lines: string[] = [];
+
+  if (user.bankLocked) {
+    lines.push(
+      "**Sua conta está bloqueada.**",
+      "Pague suas dívidas em Empréstimos para voltar a investir."
+    );
+    const container = infoContainer({ title: `${E.parceria} Investir — Salas`, description: lines.join("\n") });
+    return screen(container, row(secondaryButton(bid("home", userId), "Voltar")));
+  }
+
+  lines.push(
+    "Escolha em qual sala investir. Cada sala tem seu próprio mercado (orçamento), então o histórico e a variação de uma sala não têm relação com as outras.",
+    "Você pode investir em mais de uma sala ao mesmo tempo."
+  );
+
+  const roomButtons: ReturnType<typeof secondaryButton>[] = [];
+  for (let room = 1; room <= INVESTMENT_ROOMS; room++) {
+    const inv = getInvestment(user, room);
+    if (inv.active) {
+      const sign = inv.balance >= 0 ? "+" : "";
+      lines.push(`> **Sala ${room}:** ${sign}${fmt(inv.balance)} fichas investidas`);
+    } else {
+      lines.push(`> **Sala ${room}:** nenhum investimento ativo`);
+    }
+    roomButtons.push(secondaryButton(bid("sala", userId, room), `Sala ${room}`));
+  }
+
+  const container = infoContainer({
+    title: `${E.parceria} Investir — Salas`,
+    description: lines.join("\n"),
+  });
+
+  return screen(container, row(...roomButtons), row(secondaryButton(bid("home", userId), "Voltar")));
+}
+
+// ─── Investir (dentro de uma sala) ──────────────────────────────────────────────
+
+export function renderInvestirSala(userId: string, room: number) {
+  const user = processAccount(userId);
+  const inv = getInvestment(user, room);
 
   const lines: string[] = [];
   const buttons: ReturnType<typeof secondaryButton>[] = [];
@@ -271,15 +318,15 @@ export function renderInvestir(userId: string) {
       "**Sua conta está bloqueada.**",
       "Pague suas dívidas em Empréstimos para voltar a investir."
     );
-    buttons.push(secondaryButton(bid("home", userId), "Voltar"));
+    buttons.push(secondaryButton(bid("investir", userId), "Voltar"));
   } else if (!inv.active) {
     lines.push(
-      "Você não tem nenhum investimento ativo.",
-      "Escolha um valor para começar. O valor investido sobe ou desce a cada 10 minutos (+10%, -10%, uma variação entre 20% e 50%, ou mais raramente uma variação entre 60% e 100% — pra cima ou pra baixo) — o mercado é o mesmo para todo mundo.",
+      `Você não tem nenhum investimento ativo na **Sala ${room}**.`,
+      "Escolha um valor para começar. O valor investido sobe ou desce a cada 10 minutos (+10%, -10%, uma variação entre 20% e 50%, ou mais raramente uma variação entre 60% e 100% — pra cima ou pra baixo) — o mercado desta sala é o mesmo para todo mundo que investir nela.",
       "Se o valor chegar a zero e você não sacar, ele pode continuar caindo e você fica devendo fichas."
     );
-    buttons.push(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1));
-    buttons.push(secondaryButton(bid("home", userId), "Voltar"));
+    buttons.push(secondaryButton(bid("inv_open", userId, room), "Investir").setDisabled(user.fichas < 1));
+    buttons.push(secondaryButton(bid("investir", userId), "Voltar"));
   } else {
     const sign = inv.balance >= 0 ? "+" : "";
     const pctSign = inv.lastChangePct >= 0 ? "+" : "";
@@ -307,13 +354,13 @@ export function renderInvestir(userId: string) {
       );
     }
 
-    buttons.push(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1));
-    buttons.push(secondaryButton(bid("sac_open", userId), "Sacar"));
-    buttons.push(secondaryButton(bid("home", userId), "Voltar"));
+    buttons.push(secondaryButton(bid("inv_open", userId, room), "Investir").setDisabled(user.fichas < 1));
+    buttons.push(secondaryButton(bid("sac_open", userId, room), "Sacar"));
+    buttons.push(secondaryButton(bid("investir", userId), "Voltar"));
   }
 
   const container = infoContainer({
-    title: `${E.parceria} Investimento`,
+    title: `${E.parceria} Investimento — Sala ${room}`,
     description: lines.join("\n"),
   });
 
@@ -336,8 +383,8 @@ function ansiColor(pct: number, text: string): string {
 const NEGOCIOS_HISTORY_LENGTH = 30;
 const NEGOCIOS_PER_ROW = 6;
 
-export function renderNegocios(userId: string) {
-  const history = getMarketHistory(NEGOCIOS_HISTORY_LENGTH);
+export function renderNegocios(userId: string, room: number) {
+  const history = getMarketHistory(NEGOCIOS_HISTORY_LENGTH, room);
   const nextTick = nextMarketTick();
 
   // Emojis do Discord (custom) não são renderizados dentro de blocos de código,
@@ -356,7 +403,7 @@ export function renderNegocios(userId: string) {
   const block = emojiRows.map((emojiRow, i) => `${emojiRow}\n\`\`\`ansi\n${valueRows[i]}\n\`\`\``).join("\n");
 
   const lines = [
-    "Acompanhe como o mercado de Investimentos do banco tem se comportado antes de decidir investir — a variação é a mesma pra todo mundo.",
+    `Acompanhe como o mercado de Investimentos da **Sala ${room}** tem se comportado antes de decidir investir — a variação é a mesma pra todo mundo que investir nessa sala.`,
     "",
     `📊 **Últimos ${history.length} lances** (mais antigo → mais recente):`,
     block,
@@ -366,11 +413,11 @@ export function renderNegocios(userId: string) {
   ];
 
   const container = infoContainer({
-    title: `${E.parceria} Negócios`,
+    title: `${E.parceria} Negócios — Sala ${room}`,
     description: lines.join("\n"),
   });
 
-  const buttons = row(secondaryButton(bid("investir", userId), "Investir"));
+  const buttons = row(secondaryButton(bid("sala", userId, room), "Investir"));
 
   return screen(container, buttons);
 }
