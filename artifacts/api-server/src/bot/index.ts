@@ -22,6 +22,7 @@ import { loadCommands } from "./loader";
 import { handleButton } from "./handlers/button";
 import { handleModal } from "./handlers/modal";
 import { handleSelectMenu } from "./handlers/selectMenu";
+import { handlePeerLoanButton } from "./handlers/peerLoan";
 import { hasStaffAccess } from "./guard";
 import { errorContainer } from "./v2/index";
 import { reactionRoleStore, makeKey, emojiKeyFromReaction } from "./reactionRoleStore";
@@ -109,7 +110,20 @@ export async function startBot() {
   });
 
   client.on("interactionCreate", async (interaction) => {
-    if (!interaction.inGuild()) return;
+    // Empréstimos entre usuários: os botões Aceitar/Recusar/Pagar chegam por
+    // DM (fora de servidor) — tratados aqui antes do bloqueio "guild-only".
+    if (!interaction.inGuild()) {
+      if (interaction.isButton() && interaction.customId.startsWith("pemp:")) {
+        await handlePeerLoanButton(interaction).catch((err) =>
+          logger.error({ err }, "Erro no botão de empréstimo pessoal (DM)")
+        );
+      } else if (interaction.isModalSubmit() && interaction.customId.startsWith("pemp:")) {
+        await handleModal(interaction as ModalSubmitInteraction).catch((err) =>
+          logger.error({ err }, "Erro no modal de empréstimo pessoal (DM)")
+        );
+      }
+      return;
+    }
 
     const member = interaction.member as GuildMember | null;
 
@@ -136,7 +150,7 @@ export async function startBot() {
       interaction.customId.startsWith("cassino:");
 
     // Commands available to all members regardless of role
-    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "administrar-saldo", "cassino"]);
+    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "administrar-saldo", "cassino", "negocios"]);
     const isPublicCommand =
       interaction.isChatInputCommand() && PUBLIC_COMMANDS.has(interaction.commandName);
 

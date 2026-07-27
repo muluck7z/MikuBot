@@ -19,6 +19,9 @@ import {
   INVEST_TICK_MS,
   getMarketHistory,
   nextMarketTick,
+  NEGATIVE_STREAK_LIMIT,
+  peerLoansAsBorrower,
+  peerLoansAsLender,
 } from "./economyStore";
 
 function fmt(n: number): string {
@@ -206,6 +209,24 @@ export function renderCarteira(userId: string) {
     );
   }
 
+  const owed = peerLoansAsBorrower(userId).filter((l) => l.status === "active");
+  if (owed.length > 0) {
+    lines.push("", `💸 **Empréstimos pessoais que você deve (${owed.length}):**`);
+    for (const l of owed) {
+      const dueStr = l.dueAt ? `<t:${Math.floor(l.dueAt / 1000)}:R>` : "—";
+      lines.push(`* ${fmt(l.totalOwed)} fichas para <@${l.lenderId}>, vira dívida no banco ${dueStr}`);
+    }
+  }
+
+  const lent = peerLoansAsLender(userId).filter((l) => l.status === "pending" || l.status === "active");
+  if (lent.length > 0) {
+    lines.push("", `🤝 **Empréstimos pessoais que você concedeu (${lent.length}):**`);
+    for (const l of lent) {
+      const statusStr = l.status === "pending" ? "aguardando resposta" : `${fmt(l.totalOwed)} fichas a receber`;
+      lines.push(`* <@${l.borrowerId}>: ${statusStr}`);
+    }
+  }
+
   const container = infoContainer({
     title: `${E.banco} Sua Carteira`,
     description: lines.join("\n"),
@@ -256,9 +277,11 @@ export function renderInvestir(userId: string) {
     }
 
     if (inv.balance < 0) {
+      const remaining = Math.max(0, NEGATIVE_STREAK_LIMIT - inv.negativeStreak);
       lines.push(
         "",
-        "**Você está devendo neste investimento.** Deposite mais para tentar recuperar ou saque para encerrar."
+        "**Você está devendo neste investimento.** Deposite mais para tentar recuperar ou saque para encerrar.",
+        `⚠️ Se continuar negativo por mais **${remaining}** variaç${remaining === 1 ? "ão" : "ões"}, essa dívida é cobrada na hora (vira empréstimo) — o investimento continua ativo.`
       );
     }
 
@@ -295,16 +318,20 @@ export function renderNegocios(userId: string) {
   const history = getMarketHistory(NEGOCIOS_HISTORY_LENGTH);
   const nextTick = nextMarketTick();
 
-  const rows: string[] = [];
+  // Emojis do Discord (custom) não são renderizados dentro de blocos de código,
+  // então a linha de indicadores fica fora do ```ansi``` e os valores coloridos dentro.
+  const emojiRows: string[] = [];
+  const valueRows: string[] = [];
   for (let i = 0; i < history.length; i += NEGOCIOS_PER_ROW) {
     const chunk = history.slice(i, i + NEGOCIOS_PER_ROW);
-    rows.push(
+    emojiRows.push(
       chunk
-        .map((pct) => `${pct >= 0 ? "<a:emoji_94:1508159306565156984>" : "<a:emoji_1838:1508159758685962452>"}${ansiColor(pct, formatPct(pct).padStart(5))}`)
+        .map((pct) => (pct >= 0 ? "<a:emoji_94:1508159306565156984>" : "<a:emoji_1838:1508159758685962452>"))
         .join("  ")
     );
+    valueRows.push(chunk.map((pct) => ansiColor(pct, formatPct(pct).padStart(5))).join("  "));
   }
-  const block = "```ansi\n" + rows.join("\n") + "\n```";
+  const block = emojiRows.map((emojiRow, i) => `${emojiRow}\n\`\`\`ansi\n${valueRows[i]}\n\`\`\``).join("\n");
 
   const lines = [
     "Acompanhe como o mercado de Investimentos do banco tem se comportado antes de decidir investir — a variação é a mesma pra todo mundo.",

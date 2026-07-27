@@ -29,6 +29,9 @@ export const DEBT_TRANSFER_MAX_AMOUNT = 2000; // transferências precisam ser < 
 export const DEBT_TRANSFER_COOLDOWN_MS = DAY_MS; // 1 transferência a cada 24h
 
 const MAX_INVESTMENT_TICKS = 4320; // limite de "ticks" de 10min simulados de uma vez (proteção, ~30 dias)
+export const NEGATIVE_STREAK_LIMIT = 60; // nº de variações seguidas com saldo negativo até virar dívida
+
+export const PEER_LOAN_DUE_DAYS = 10; // prazo para o devedor pagar direto a quem emprestou antes de virar dívida oficial do banco
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -49,10 +52,29 @@ export interface InvestmentPortfolio {
   lastUpdate: number; // timestamp da última atualização de mercado
   lastChangePct: number; // última variação percentual aplicada (para exibição)
   history: number[]; // últimas variações percentuais aplicadas (mais recente por último)
+  negativeStreak: number; // nº de variações seguidas com o saldo negativo (zera quando volta a ficar >= 0)
 }
 
 // quantas variações recentes guardamos para exibir o histórico ao usuário
 const INVEST_HISTORY_LENGTH = 10;
+
+/**
+ * Empréstimo entre dois usuários (não é dinheiro criado pelo banco — sai da
+ * carteira de quem empresta). Ver seção "Empréstimos entre usuários" abaixo.
+ */
+export interface PeerLoan {
+  id: string;
+  lenderId: string; // quem emprestou
+  borrowerId: string; // quem pediu/recebeu
+  amount: number; // valor emprestado (retido de quem empresta até a resposta)
+  ratePct: number; // taxa (%) a mais que o devedor deve devolver ao credor
+  totalOwed: number; // quanto ainda falta pagar ao credor (decresce com pagamentos)
+  status: "pending" | "active" | "declined" | "paid" | "converted";
+  createdAt: number;
+  respondedAt?: number;
+  dueAt?: number; // PEER_LOAN_DUE_DAYS após aceitar — depois disso vira dívida no banco
+  convertedAt?: number;
+}
 
 // ─── Configurações do cassino (Roleta Brazino 777) ─────────────────────────────
 
@@ -115,6 +137,32 @@ function saveData(): void {
 
 loadData();
 
+// ─── Persistência JSON (empréstimos entre usuários) ────────────────────────────
+
+const PEER_LOANS_FILE = dataFilePath("peer_loans.json");
+let _peerLoans: Record<string, PeerLoan> = {};
+
+function loadPeerLoans(): void {
+  try {
+    if (fs.existsSync(PEER_LOANS_FILE)) {
+      const raw = fs.readFileSync(PEER_LOANS_FILE, "utf-8");
+      _peerLoans = JSON.parse(raw) as Record<string, PeerLoan>;
+    }
+  } catch {
+    _peerLoans = {};
+  }
+}
+
+function savePeerLoans(): void {
+  try {
+    fs.writeFileSync(PEER_LOANS_FILE, JSON.stringify(_peerLoans, null, 2), "utf-8");
+  } catch {
+    // erros silenciosos de escrita
+  }
+}
+
+loadPeerLoans();
+
 // ─── Getters / inicializadores ────────────────────────────────────────────────
 
 function freshUser(): UserEconomy {
@@ -129,6 +177,7 @@ function freshUser(): UserEconomy {
       lastUpdate: Date.now(),
       lastChangePct: 0,
       history: [],
+      negativeStreak: 0,
     },
     cassino: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null },
     bankLocked: false,
@@ -146,9 +195,10 @@ export function getUser(userId: string): UserEconomy {
   // Compatibilidade com dados antigos (retrocompatibilidade defensiva)
   const u = _data[userId]!;
   if (!u.investment) {
-    u.investment = { active: false, deposited: 0, balance: 0, lastUpdate: Date.now(), lastChangePct: 0, history: [] };
+    u.investment = { active: false, deposited: 0, balance: 0, lastUpdate: Date.now(), lastChangePct: 0, history: [], negativeStreak: 0 };
   }
   if (!u.investment.history) u.investment.history = [];
+  if (u.investment.negativeStreak === undefined) u.investment.negativeStreak = 0;
   if (u.bankLocked === undefined) u.bankLocked = false;
   if (u.lockDebt === undefined) u.lockDebt = 0;
   if (u.unlockPaid === undefined) u.unlockPaid = 0;
@@ -203,6 +253,9 @@ export function processAccount(userId: string): UserEconomy {
       user.fichas = 0; // todo o dinheiro na conta é confiscado
     }
   }
+
+  // Empréstimos entre usuários: se passou do prazo sem ser pago, vira dívida oficial
+  processPeerLoansForUser(user, userId);
 
   // Mercado de investimentos
   updateInvestment(user);
@@ -397,6 +450,20 @@ function updateInvestment(user: UserEconomy): void {
     const delta = Math.round(inv.deposited * lastPct);
     inv.balance += delta;
     inv.history.push(lastPct);
+
+    if (inv.balance < 0) {
+      inv.negativeStreak += 1;
+      if (inv.negativeStreak >= NEGATIVE_STREAK_LIMIT) {
+        // Saldo ficou negativo por variações demais seguidas: a dívida é
+        // cobrada na hora (entra no sistema de empréstimos), mas o
+        // investimento continua ativo normalmente a partir de 0.
+        addForcedDebt(user, -inv.balance);
+        inv.balance = 0;
+        inv.negativeStreak = 0;
+      }
+    } else {
+      inv.negativeStreak = 0;
+    }
   }
   if (inv.history.length > INVEST_HISTORY_LENGTH) {
     inv.history = inv.history.slice(inv.history.length - INVEST_HISTORY_LENGTH);
@@ -425,6 +492,7 @@ export function investFichas(userId: string, amount: number): InvestResult {
     inv.lastUpdate = Date.now();
     inv.lastChangePct = 0;
     inv.history = [];
+    inv.negativeStreak = 0;
   } else {
     inv.deposited += amount;
     inv.balance += amount;
@@ -450,6 +518,7 @@ export function withdrawInvestment(userId: string): WithdrawResult {
   inv.balance = 0;
   inv.lastChangePct = 0;
   inv.history = [];
+  inv.negativeStreak = 0;
   saveData();
   return { ok: true, amount };
 }
@@ -482,6 +551,7 @@ export function withdrawPartial(userId: string, amount: number): WithdrawPartial
     inv.balance = 0;
     inv.lastChangePct = 0;
     inv.history = [];
+    inv.negativeStreak = 0;
     saveData();
     return { ok: true, amount: withdrawn, closed: true, remainingBalance: 0 };
   }
@@ -544,6 +614,157 @@ export function transferFichas(fromUserId: string, toUserId: string, amount: num
   to.fichas += amount;
   saveData();
   return { ok: true, amount };
+}
+
+// ─── Empréstimos entre usuários (via /pix) ─────────────────────────────────────
+//
+// Diferente do empréstimo do banco (`takeLoan`), aqui o dinheiro sai da
+// carteira de quem empresta, não é criado do nada. O valor fica retido até
+// quem recebe aceitar ou recusar pelo DM. Se aceitar, ele pode pagar quando
+// quiser diretamente para quem emprestou; se passar de PEER_LOAN_DUE_DAYS
+// dias sem ter sido totalmente pago, o restante vira uma dívida oficial no
+// banco (soma no sistema de empréstimos normal, com bloqueio de conta etc).
+
+/**
+ * Converte automaticamente em dívida "oficial" do banco qualquer empréstimo
+ * pessoal ativo do usuário (como devedor) que passou do prazo sem ser
+ * totalmente pago. Chamado dentro de processAccount.
+ */
+function processPeerLoansForUser(user: UserEconomy, userId: string): void {
+  const now = Date.now();
+  let changed = false;
+  for (const loan of Object.values(_peerLoans)) {
+    if (loan.borrowerId !== userId) continue;
+    if (loan.status !== "active") continue;
+    if (!loan.dueAt || now < loan.dueAt) continue;
+
+    addForcedDebt(user, loan.totalOwed);
+    loan.status = "converted";
+    loan.convertedAt = now;
+    changed = true;
+  }
+  if (changed) savePeerLoans();
+}
+
+export function getPeerLoan(id: string): PeerLoan | null {
+  return _peerLoans[id] ?? null;
+}
+
+/** Empréstimos pessoais que o usuário pegou de outros membros (não confundir com `loans`, do banco). */
+export function peerLoansAsBorrower(userId: string): PeerLoan[] {
+  return Object.values(_peerLoans).filter((l) => l.borrowerId === userId);
+}
+
+/** Empréstimos pessoais que o usuário concedeu a outros membros. */
+export function peerLoansAsLender(userId: string): PeerLoan[] {
+  return Object.values(_peerLoans).filter((l) => l.lenderId === userId);
+}
+
+export type CreatePeerLoanResult =
+  | { ok: true; loan: PeerLoan }
+  | {
+      ok: false;
+      reason: "locked" | "insufficient" | "invalid_amount" | "invalid_rate" | "same_user";
+    };
+
+/**
+ * Cria um pedido de empréstimo pessoal (comando /pix com "emprestimo: sim").
+ * O valor sai imediatamente da carteira de quem empresta e fica retido até
+ * o destinatário responder pela DM (ver respondPeerLoan).
+ */
+export function createPeerLoan(
+  lenderId: string,
+  borrowerId: string,
+  amount: number,
+  ratePct: number
+): CreatePeerLoanResult {
+  if (lenderId === borrowerId) return { ok: false, reason: "same_user" };
+  if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "invalid_amount" };
+  if (!Number.isFinite(ratePct) || ratePct < 0) return { ok: false, reason: "invalid_rate" };
+
+  const lender = processAccount(lenderId);
+  if (lender.bankLocked) return { ok: false, reason: "locked" };
+  if (lender.fichas < amount) return { ok: false, reason: "insufficient" };
+
+  lender.fichas -= amount;
+  saveData();
+
+  const now = Date.now();
+  const loan: PeerLoan = {
+    id: `peer-${now}-${Math.floor(Math.random() * 10000)}`,
+    lenderId,
+    borrowerId,
+    amount,
+    ratePct,
+    totalOwed: Math.ceil(amount * (1 + ratePct / 100)),
+    status: "pending",
+    createdAt: now,
+  };
+  _peerLoans[loan.id] = loan;
+  savePeerLoans();
+  return { ok: true, loan };
+}
+
+export type RespondPeerLoanResult =
+  | { ok: true; loan: PeerLoan }
+  | { ok: false; reason: "not_found" | "not_yours" | "already_answered" };
+
+/** O destinatário aceita ou recusa (pelos botões no DM) um pedido de empréstimo pessoal. */
+export function respondPeerLoan(loanId: string, responderId: string, accept: boolean): RespondPeerLoanResult {
+  const loan = _peerLoans[loanId];
+  if (!loan) return { ok: false, reason: "not_found" };
+  if (loan.borrowerId !== responderId) return { ok: false, reason: "not_yours" };
+  if (loan.status !== "pending") return { ok: false, reason: "already_answered" };
+
+  const now = Date.now();
+  if (accept) {
+    const borrower = processAccount(loan.borrowerId);
+    borrower.fichas += loan.amount;
+    saveData();
+    loan.status = "active";
+    loan.respondedAt = now;
+    loan.dueAt = now + PEER_LOAN_DUE_DAYS * DAY_MS;
+  } else {
+    const lender = processAccount(loan.lenderId);
+    lender.fichas += loan.amount; // devolve o valor retido
+    saveData();
+    loan.status = "declined";
+    loan.respondedAt = now;
+  }
+  savePeerLoans();
+  return { ok: true, loan };
+}
+
+export type PayPeerLoanResult =
+  | { ok: true; paid: number; remaining: number; finished: boolean }
+  | { ok: false; reason: "not_found" | "not_yours" | "not_active" | "insufficient" | "invalid_amount" };
+
+/** O devedor paga (parcial ou totalmente) um empréstimo pessoal ativo, direto para quem emprestou. */
+export function payPeerLoan(loanId: string, payerId: string, amount: number): PayPeerLoanResult {
+  const loan = _peerLoans[loanId];
+  if (!loan) return { ok: false, reason: "not_found" };
+  if (loan.borrowerId !== payerId) return { ok: false, reason: "not_yours" };
+  if (loan.status !== "active") return { ok: false, reason: "not_active" };
+  if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "invalid_amount" };
+
+  const borrower = processAccount(payerId);
+  if (borrower.fichas < amount) return { ok: false, reason: "insufficient" };
+
+  const payment = Math.min(amount, loan.totalOwed);
+  borrower.fichas -= payment;
+  const lender = processAccount(loan.lenderId);
+  lender.fichas += payment;
+  loan.totalOwed -= payment;
+
+  let finished = false;
+  if (loan.totalOwed <= 0) {
+    loan.totalOwed = 0;
+    loan.status = "paid";
+    finished = true;
+  }
+  saveData();
+  savePeerLoans();
+  return { ok: true, paid: payment, remaining: loan.totalOwed, finished };
 }
 
 // ─── Administração de saldo ────────────────────────────────────────────────────
