@@ -131,7 +131,7 @@ export async function startBot() {
       interaction.customId.startsWith("banco:");
 
     // Commands available to all members regardless of role
-    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "dar-dinheiro"]);
+    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "administrar-saldo"]);
     const isPublicCommand =
       interaction.isChatInputCommand() && PUBLIC_COMMANDS.has(interaction.commandName);
 

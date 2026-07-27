@@ -10,15 +10,15 @@ function fmt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
 }
 
-export const darDinheiroCommand: BotCommand = {
+export const administrarSaldoCommand: BotCommand = {
   data: new SlashCommandBuilder()
-    .setName("dar-dinheiro")
-    .setDescription("Dá fichas a um usuário (uso restrito)")
+    .setName("administrar-saldo")
+    .setDescription("Adiciona ou remove fichas de um usuário (uso restrito)")
     .addUserOption((opt) =>
-      opt.setName("usuario").setDescription("Quem vai receber as fichas").setRequired(true)
+      opt.setName("usuario").setDescription("Usuário alvo").setRequired(true)
     )
     .addIntegerOption((opt) =>
-      opt.setName("valor").setDescription("Quantas fichas dar").setMinValue(1).setRequired(true)
+      opt.setName("valor").setDescription("Valor a adicionar (positivo) ou remover (negativo)").setRequired(true)
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
@@ -33,22 +33,27 @@ export const darDinheiroCommand: BotCommand = {
     const valor = interaction.options.getInteger("valor", true);
 
     if (target.bot) {
-      await interaction.reply(v2EphemeralReply([errorContainer("Você não pode dar fichas a um bot.")]));
+      await interaction.reply(v2EphemeralReply([errorContainer("Você não pode administrar o saldo de um bot.")]));
       return;
     }
 
     const result = giveFichas(target.id, valor);
 
     if (!result.ok) {
-      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido.")]));
+      await interaction.reply(v2EphemeralReply([errorContainer("Ocorreu um erro ao processar o valor.")]));
       return;
     }
+
+    const isAdding = valor >= 0;
+    const title = isAdding ? "Saldo adicionado!" : "Saldo removido!";
+    const actionText = isAdding ? "deu" : "removeu";
+    const notifyText = isAdding ? "recebeu" : "perdeu";
 
     await interaction.reply(
       v2Reply([
         successContainer(
-          "Fichas concedidas!",
-          `Você deu **${fmt(result.amount)} fichas** para <@${target.id}>.\nSaldo atual dele(a): **${fmt(result.newBalance)} fichas**.`
+          title,
+          `Você ${actionText} **${fmt(Math.abs(valor))} fichas** para <@${target.id}>.\nSaldo atual dele(a): **${fmt(result.newBalance)} fichas**.`
         ),
       ])
     );
@@ -57,8 +62,8 @@ export const darDinheiroCommand: BotCommand = {
       .send(
         v2Reply([
           successContainer(
-            "Você recebeu fichas!",
-            `Você recebeu **${fmt(result.amount)} fichas** do banco.`
+            title,
+            `Você ${notifyText} **${fmt(Math.abs(valor))} fichas** do banco.`
           ),
         ])
       )

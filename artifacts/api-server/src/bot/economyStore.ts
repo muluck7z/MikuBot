@@ -512,7 +512,7 @@ export type GiveResult =
 
 /** Dá fichas a um usuário "do nada" (sem debitar de ninguém) — uso restrito. */
 export function giveFichas(userId: string, amount: number): GiveResult {
-  if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "invalid_amount" };
+  if (!Number.isFinite(amount) || amount === 0) return { ok: false, reason: "invalid_amount" };
   const user = processAccount(userId);
   user.fichas += amount;
   saveData();
