@@ -1,6 +1,5 @@
 import {
   infoContainer,
-  primaryButton,
   secondaryButton,
   successButton,
   dangerButton,
@@ -12,9 +11,7 @@ import {
   processAccount,
   activeLoans,
   totalDebt,
-  LOAN_AMOUNTS,
-  CONVERT_AMOUNTS,
-  INVEST_AMOUNTS,
+  MAX_LOAN_AMOUNT,
   INVITE_VALUE,
   LOAN_INTEREST,
   LOAN_DUE_DAYS,
@@ -99,7 +96,7 @@ export function renderEmprestimos(userId: string) {
       LOAN_LATE_DAILY_RATE * 100
     )}% ao dia até chegar ao dia ${LOAN_LOCK_DAYS} onde iremos bloquear sua conta e seu saldo ficará sob custódia de nosso banco até você pagar ${Math.round(
       UNLOCK_THRESHOLD * 100
-    )}% do valor que deve.`,
+    )}% do valor que deve. O valor máximo por empréstimo é ${fmt(MAX_LOAN_AMOUNT)} fichas.`,
     ""
   );
 
@@ -137,13 +134,7 @@ export function renderEmprestimos(userId: string) {
 
   if (!user.bankLocked) {
     const canTakeMore = loans.length < MAX_ACTIVE_LOANS;
-    rows.push(
-      row(
-        ...LOAN_AMOUNTS.map((amount) =>
-          primaryButton(bid("loan", userId, amount), `${fmt(amount)} fichas`).setDisabled(!canTakeMore)
-        )
-      )
-    );
+    rows.push(row(secondaryButton(bid("loan_open", userId), "Empréstimo").setDisabled(!canTakeMore)));
   }
 
   const payRow = [secondaryButton(bid("home", userId), "⬅️ Voltar")];
@@ -174,11 +165,7 @@ export function renderConversao(userId: string) {
   });
 
   const buttonsRow = row(
-    ...CONVERT_AMOUNTS.map((amount) =>
-      successButton(bid("conv", userId, amount), `${amount} invites`).setDisabled(
-        user.pendingInvites < amount
-      )
-    )
+    secondaryButton(bid("conv_open", userId), "Conversão").setDisabled(user.pendingInvites < 1)
   );
 
   return screen(container, buttonsRow, row(secondaryButton(bid("home", userId), "⬅️ Voltar")));
@@ -245,18 +232,10 @@ export function renderInvestir(userId: string) {
   } else if (!inv.active) {
     lines.push(
       "Você não tem nenhum investimento ativo.",
-      "Escolha um valor para começar. O valor investido sobe ou desce a cada hora (📈 +10%, 📉 -10%, ou uma variação aleatória) — o mercado é o mesmo para todo mundo.",
+      "Escolha um valor para começar. O valor investido sobe ou desce a cada 10 minutos (📈 +10%, 📉 -10%, ou uma variação aleatória) — o mercado é o mesmo para todo mundo.",
       "⚠️ Se o valor chegar a zero e você não sacar, ele pode continuar caindo e você fica devendo fichas."
     );
-    rows.push(
-      row(
-        ...INVEST_AMOUNTS.map((amount) =>
-          primaryButton(bid("inv", userId, amount), `${fmt(amount)} fichas`).setDisabled(
-            user.fichas < amount
-          )
-        )
-      )
-    );
+    rows.push(row(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1)));
     rows.push(row(secondaryButton(bid("home", userId), "⬅️ Voltar")));
   } else {
     const sign = inv.balance >= 0 ? "+" : "";
@@ -270,16 +249,10 @@ export function renderInvestir(userId: string) {
       "",
       inv.balance < 0
         ? "⚠️ **Você está devendo neste investimento.** Deposite mais para tentar recuperar ou saque para encerrar."
-        : "O mercado é o mesmo para todo mundo e muda a cada hora. Deposite mais ou saque quando quiser."
+        : "O mercado é o mesmo para todo mundo e muda a cada 10 minutos. Deposite mais ou saque quando quiser."
     );
 
-    rows.push(
-      row(
-        ...INVEST_AMOUNTS.map((amount) =>
-          secondaryButton(bid("inv", userId, amount), `+${fmt(amount)}`).setDisabled(user.fichas < amount)
-        )
-      )
-    );
+    rows.push(row(secondaryButton(bid("inv_open", userId), "Investir").setDisabled(user.fichas < 1)));
     rows.push(
       row(dangerButton(bid("inv", userId, "sacar"), "💵 Sacar Tudo"), secondaryButton(bid("home", userId), "⬅️ Voltar"))
     );

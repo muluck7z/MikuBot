@@ -6,12 +6,11 @@ const DATA_FILE = path.join(process.cwd(), "economy_data.json");
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+const INVEST_TICK_MS = 10 * 60 * 1000; // mercado de investimentos atualiza a cada 10 minutos
 
 // ─── Configurações do banco ────────────────────────────────────────────────────
 
-export const LOAN_AMOUNTS = [100, 500, 1000, 10000] as const;
-export const CONVERT_AMOUNTS = [10, 50, 100, 300] as const;
-export const INVEST_AMOUNTS = [20, 50, 100, 300] as const;
+export const MAX_LOAN_AMOUNT = 50000; // valor máximo que pode ser pego por empréstimo
 
 export const INVITE_VALUE = 200; // fichas por invite convertido
 export const LOAN_INTEREST = 0.3; // 30% de juros ao pegar o empréstimo
@@ -21,7 +20,7 @@ export const LOAN_LATE_DAILY_RATE = 0.05; // juros extra por dia de atraso (apó
 export const MAX_ACTIVE_LOANS = 2;
 export const UNLOCK_THRESHOLD = 0.3; // 30% da dívida travada precisa ser paga para desbloquear
 
-const MAX_INVESTMENT_TICKS = 400; // limite de "horas" simuladas de uma vez (proteção)
+const MAX_INVESTMENT_TICKS = 4320; // limite de "ticks" de 10min simulados de uma vez (proteção, ~30 dias)
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -189,6 +188,7 @@ export function convertInvites(
   amount: number
 ): { converted: number; fichasEarned: number } | null {
   const user = getUser(userId);
+  if (!Number.isFinite(amount) || amount < 1) return null;
   if (user.pendingInvites < amount) return null;
   const fichasEarned = amount * INVITE_VALUE;
   user.pendingInvites -= amount;
@@ -201,10 +201,13 @@ export function convertInvites(
 
 export type TakeLoanResult =
   | { ok: true; loan: Loan }
-  | { ok: false; reason: "locked" | "max_loans" };
+  | { ok: false; reason: "locked" | "max_loans" | "invalid_amount" };
 
 export function takeLoan(userId: string, amount: number): TakeLoanResult {
   const user = getUser(userId);
+  if (!Number.isFinite(amount) || amount < 1 || amount > MAX_LOAN_AMOUNT) {
+    return { ok: false, reason: "invalid_amount" };
+  }
   if (user.bankLocked) return { ok: false, reason: "locked" };
   if (activeLoans(user).length >= MAX_ACTIVE_LOANS) {
     return { ok: false, reason: "max_loans" };
@@ -290,7 +293,7 @@ function seededRandom(seed: number): number {
   return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
 }
 
-/** Variação do mercado para um "bucket" de hora específico — igual para todos. */
+/** Variação do mercado para um "bucket" de 10 minutos específico — igual para todos. */
 function marketPctForBucket(bucket: number): number {
   const r1 = seededRandom(bucket);
   if (r1 < 0.4) return 0.1; // subiu 10%
@@ -305,8 +308,8 @@ function updateInvestment(user: UserEconomy): void {
   if (!inv.active) return;
 
   const now = Date.now();
-  const currentBucket = Math.floor(now / HOUR_MS);
-  let lastBucket = Math.floor(inv.lastUpdate / HOUR_MS);
+  const currentBucket = Math.floor(now / INVEST_TICK_MS);
+  let lastBucket = Math.floor(inv.lastUpdate / INVEST_TICK_MS);
   let ticks = currentBucket - lastBucket;
   if (ticks <= 0) return;
 
@@ -322,7 +325,7 @@ function updateInvestment(user: UserEconomy): void {
     inv.balance += delta;
   }
   inv.lastChangePct = lastPct;
-  inv.lastUpdate = (lastBucket + ticks) * HOUR_MS;
+  inv.lastUpdate = (lastBucket + ticks) * INVEST_TICK_MS;
 }
 
 export type InvestResult =
@@ -332,6 +335,7 @@ export type InvestResult =
 /** Investe (ou adiciona a um investimento já ativo). */
 export function investFichas(userId: string, amount: number): InvestResult {
   const user = processAccount(userId);
+  if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "insufficient" };
   if (user.bankLocked) return { ok: false, reason: "locked" };
   if (user.fichas < amount) return { ok: false, reason: "insufficient" };
 

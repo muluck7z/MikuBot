@@ -1,6 +1,7 @@
 import { type ModalSubmitInteraction, EmbedBuilder, Colors } from "discord.js";
 import { successContainer, errorContainer, v2EphemeralReply } from "../v2/index";
 import { logger } from "../../lib/logger";
+import { handleBancoModal } from "./banco";
 
 export async function handleModal(interaction: ModalSubmitInteraction) {
   const [ns, action, ...args] = interaction.customId.split(":");
@@ -8,6 +9,8 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
   try {
     if (ns === "embed") {
       await handleEmbedModal(interaction, action!, args);
+    } else if (ns === "banco") {
+      await handleBancoModal(interaction, action!, args);
     } else {
       logger.warn({ customId: interaction.customId }, "Unknown modal interaction");
     }

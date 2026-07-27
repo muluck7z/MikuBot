@@ -1,4 +1,11 @@
-import { type ButtonInteraction } from "discord.js";
+import {
+  type ButtonInteraction,
+  type ModalSubmitInteraction,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+} from "discord.js";
 import { errorContainer, successContainer, v2EphemeralReply } from "../v2/index";
 import {
   renderHome,
@@ -16,16 +23,24 @@ import {
   investFichas,
   withdrawInvestment,
   LOAN_DUE_DAYS,
-  LOAN_AMOUNTS,
-  CONVERT_AMOUNTS,
-  INVEST_AMOUNTS,
+  MAX_LOAN_AMOUNT,
 } from "../economyStore";
 
 function fmt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
 }
 
-async function toast(interaction: ButtonInteraction, description: string, ok: boolean) {
+/** Converte o texto digitado pelo usuário num inteiro positivo (aceita "50.000" ou "50000"). */
+function parseAmount(raw: string): number | null {
+  const cleaned = raw.trim().replace(/[.\s]/g, "");
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return null;
+  const rounded = Math.floor(n);
+  if (rounded < 1) return null;
+  return rounded;
+}
+
+async function toast(interaction: ButtonInteraction | ModalSubmitInteraction, description: string, ok: boolean) {
   await interaction.followUp(
     v2EphemeralReply([ok ? successContainer("Sucesso!", description) : errorContainer(description)])
   );
@@ -68,6 +83,47 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
     return;
   }
 
+  // ── Abrir formulários (modais) para inserir o valor ─────────────────────────
+  if (action === "loan_open") {
+    const modal = new ModalBuilder().setCustomId(`banco:loan_submit:_:${userId}`).setTitle("Pegar Empréstimo");
+    const input = new TextInputBuilder()
+      .setCustomId("loan_amount")
+      .setLabel(`Quanto de empréstimo (máx: ${fmt(MAX_LOAN_AMOUNT)})`)
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder("Ex: 1000");
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
+  if (action === "conv_open") {
+    const modal = new ModalBuilder().setCustomId(`banco:conv_submit:_:${userId}`).setTitle("Converter Invites");
+    const input = new TextInputBuilder()
+      .setCustomId("conv_amount")
+      .setLabel("Quantos invites converter")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder("Ex: 10");
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
+  if (action === "inv_open") {
+    const modal = new ModalBuilder().setCustomId(`banco:inv_submit:_:${userId}`).setTitle("Investir");
+    const input = new TextInputBuilder()
+      .setCustomId("inv_amount")
+      .setLabel("Quanto investir")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder("Ex: 100");
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
+
   // ── Empréstimos ────────────────────────────────────────────────────────────
   if (action === "loan") {
     if (arg === "pagar") {
@@ -106,51 +162,6 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
       await toast(interaction, msg, true);
       return;
     }
-
-    const amount = Number(arg);
-    if (!LOAN_AMOUNTS.includes(amount as (typeof LOAN_AMOUNTS)[number])) return;
-
-    const result = takeLoan(userId, amount);
-    await interaction.update(renderEmprestimos(userId) as never);
-
-    if (!result.ok) {
-      const reason =
-        result.reason === "locked"
-          ? "Sua conta está bloqueada. Pague suas dívidas primeiro."
-          : "Você já tem o máximo de empréstimos ativos ao mesmo tempo.";
-      await toast(interaction, reason, false);
-      return;
-    }
-
-    await toast(
-      interaction,
-      [
-        `Você recebeu **${fmt(amount)} fichas**.`,
-        `Total a devolver: **${fmt(result.loan.total)} fichas** em até ${LOAN_DUE_DAYS} dias.`,
-      ].join("\n"),
-      true
-    );
-    return;
-  }
-
-  // ── Conversão ──────────────────────────────────────────────────────────────
-  if (action === "conv") {
-    const amount = Number(arg);
-    if (!CONVERT_AMOUNTS.includes(amount as (typeof CONVERT_AMOUNTS)[number])) return;
-
-    const result = convertInvites(userId, amount);
-    await interaction.update(renderConversao(userId) as never);
-
-    if (!result) {
-      await toast(interaction, "Você não tem invites pendentes suficientes.", false);
-      return;
-    }
-
-    await toast(
-      interaction,
-      `Você converteu **${result.converted} invites** em **${fmt(result.fichasEarned)} fichas**!`,
-      true
-    );
     return;
   }
 
@@ -172,9 +183,100 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
       await toast(interaction, msg, result.amount >= 0);
       return;
     }
+    return;
+  }
+}
 
-    const amount = Number(arg);
-    if (!INVEST_AMOUNTS.includes(amount as (typeof INVEST_AMOUNTS)[number])) return;
+export async function handleBancoModal(interaction: ModalSubmitInteraction, action: string, args: string[]) {
+  // customId: banco:<action>:_:<ownerId>
+  const userId = args[1];
+  if (!userId) return;
+  if (interaction.user.id !== userId) {
+    await interaction.reply(
+      v2EphemeralReply([errorContainer("Este não é o seu banco — use `/banco` para abrir o seu.")])
+    );
+    return;
+  }
+
+  if (action === "loan_submit") {
+    const raw = interaction.fields.getTextInputValue("loan_amount");
+    const amount = parseAmount(raw);
+
+    if (amount === null || amount > MAX_LOAN_AMOUNT) {
+      await interaction.reply(
+        v2EphemeralReply([
+          errorContainer(`Valor inválido. Digite um número entre 1 e ${fmt(MAX_LOAN_AMOUNT)}.`),
+        ])
+      );
+      return;
+    }
+
+    const result = takeLoan(userId, amount);
+    await interaction.update(renderEmprestimos(userId) as never);
+
+    if (!result.ok) {
+      const reason =
+        result.reason === "locked"
+          ? "Sua conta está bloqueada. Pague suas dívidas primeiro."
+          : result.reason === "max_loans"
+            ? "Você já tem o máximo de empréstimos ativos ao mesmo tempo."
+            : `Valor inválido. Digite um número entre 1 e ${fmt(MAX_LOAN_AMOUNT)}.`;
+      await toast(interaction, reason, false);
+      return;
+    }
+
+    await toast(
+      interaction,
+      [
+        `Você recebeu **${fmt(amount)} fichas**.`,
+        `Total a devolver: **${fmt(result.loan.total)} fichas** em até ${LOAN_DUE_DAYS} dias.`,
+      ].join("\n"),
+      true
+    );
+    return;
+  }
+
+  if (action === "conv_submit") {
+    const user = processAccount(userId);
+    const raw = interaction.fields.getTextInputValue("conv_amount");
+    const amount = parseAmount(raw);
+
+    if (amount === null || amount > user.pendingInvites) {
+      await interaction.reply(
+        v2EphemeralReply([
+          errorContainer(`Valor inválido. Você tem ${user.pendingInvites} invite(s) pendente(s).`),
+        ])
+      );
+      return;
+    }
+
+    const result = convertInvites(userId, amount);
+    await interaction.update(renderConversao(userId) as never);
+
+    if (!result) {
+      await toast(interaction, "Você não tem invites pendentes suficientes.", false);
+      return;
+    }
+
+    await toast(
+      interaction,
+      `Você converteu **${result.converted} invites** em **${fmt(result.fichasEarned)} fichas**!`,
+      true
+    );
+    return;
+  }
+
+  if (action === "inv_submit") {
+    const user = processAccount(userId);
+    const raw = interaction.fields.getTextInputValue("inv_amount");
+    const amount = parseAmount(raw);
+
+    if (amount === null || amount > user.fichas) {
+      await interaction.reply(
+        v2EphemeralReply([errorContainer(`Valor inválido. Você tem ${fmt(user.fichas)} ficha(s) disponível(is).`)])
+      );
+      return;
+    }
 
     const result = investFichas(userId, amount);
     await interaction.update(renderInvestir(userId) as never);
