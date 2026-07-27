@@ -14,6 +14,7 @@ import {
   renderCarteira,
   renderInvestir,
 } from "../bancoViews";
+import { scheduleInvestAutoRefresh, clearInvestAutoRefresh } from "../investAutoRefresh";
 import {
   processAccount,
   totalDebt,
@@ -64,23 +65,28 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
 
   // ── Navegação entre telas ─────────────────────────────────────────────────
   if (action === "home") {
+    clearInvestAutoRefresh(interaction.message?.id);
     await interaction.update(renderHome(userId) as never);
     return;
   }
   if (action === "emprestimos") {
+    clearInvestAutoRefresh(interaction.message?.id);
     await interaction.update(renderEmprestimos(userId) as never);
     return;
   }
   if (action === "conversao") {
+    clearInvestAutoRefresh(interaction.message?.id);
     await interaction.update(renderConversao(userId) as never);
     return;
   }
   if (action === "carteira") {
+    clearInvestAutoRefresh(interaction.message?.id);
     await interaction.update(renderCarteira(userId) as never);
     return;
   }
   if (action === "investir") {
     await interaction.update(renderInvestir(userId) as never);
+    scheduleInvestAutoRefresh(interaction, userId);
     return;
   }
 
@@ -138,6 +144,7 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
     if (inv.balance <= 0) {
       // saldo negativo/zerado: não dá pra sacar parte, só encerrar tudo
       const result = withdrawInvestment(userId);
+      clearInvestAutoRefresh(interaction.message?.id);
       await interaction.update(renderInvestir(userId) as never);
       if (result.ok) {
         const msg =
@@ -298,6 +305,7 @@ export async function handleBancoModal(interaction: ModalSubmitInteraction, acti
 
     const result = investFichas(userId, amount);
     await interaction.update(renderInvestir(userId) as never);
+    scheduleInvestAutoRefresh(interaction, userId);
 
     if (!result.ok) {
       const reason =
@@ -327,6 +335,11 @@ export async function handleBancoModal(interaction: ModalSubmitInteraction, acti
 
     const result = withdrawPartial(userId, amount);
     await interaction.update(renderInvestir(userId) as never);
+    if (result.ok && result.closed) {
+      clearInvestAutoRefresh(interaction.message?.id);
+    } else {
+      scheduleInvestAutoRefresh(interaction, userId);
+    }
 
     if (!result.ok) {
       const reason =

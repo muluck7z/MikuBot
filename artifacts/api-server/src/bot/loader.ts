@@ -22,6 +22,7 @@ import { reactionRoleCommand } from "./commands/reactionrole";
 import { sorteioCommand } from "./commands/sorteio";
 import { restorecordSetupCommand } from "./commands/restorecord_setup";
 import { bancoCommand } from "./commands/banco";
+import { negociosCommand } from "./commands/negocios";
 import { cassinoCommand } from "./commands/cassino";
 import { pixCommand } from "./commands/pix";
 import { administrarSaldoCommand } from "./commands/administrarSaldo";
@@ -52,6 +53,7 @@ const allCommands: BotCommand[] = [
   sorteioCommand,
   restorecordSetupCommand,
   bancoCommand,
+  negociosCommand,
   cassinoCommand,
   pixCommand,
   administrarSaldoCommand,

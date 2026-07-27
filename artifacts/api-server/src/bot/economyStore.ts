@@ -359,6 +359,22 @@ function marketPctForBucket(bucket: number): number {
   return sign * magnitude;
 }
 
+/** Retorna as últimas `count` variações do mercado (a mesma pra todo mundo), da mais antiga pra mais recente. */
+export function getMarketHistory(count: number = 30): number[] {
+  const now = Date.now();
+  const currentBucket = Math.floor(now / INVEST_TICK_MS);
+  const history: number[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    history.push(marketPctForBucket(currentBucket - i));
+  }
+  return history;
+}
+
+/** Timestamp (ms) do próximo "tick" de mercado a partir de agora. */
+export function nextMarketTick(): number {
+  return (Math.floor(Date.now() / INVEST_TICK_MS) + 1) * INVEST_TICK_MS;
+}
+
 /** Simula as variações de mercado (globais) que aconteceram desde a última atualização. */
 function updateInvestment(user: UserEconomy): void {
   const inv = user.investment;

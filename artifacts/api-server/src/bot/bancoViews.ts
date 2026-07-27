@@ -17,6 +17,8 @@ import {
   UNLOCK_THRESHOLD,
   MAX_ACTIVE_LOANS,
   INVEST_TICK_MS,
+  getMarketHistory,
+  nextMarketTick,
 } from "./economyStore";
 
 function fmt(n: number): string {
@@ -271,4 +273,55 @@ export function renderInvestir(userId: string) {
   });
 
   return screen(container, row(...buttons));
+}
+
+// ─── Negócios (histórico do mercado) ───────────────────────────────────────────
+
+function formatPct(pct: number): string {
+  const percent = Math.round(pct * 100);
+  return `${percent > 0 ? "+" : ""}${percent}%`;
+}
+
+/** Colore o texto em verde (ganho) ou vermelho (perda) usando códigos ANSI de um code block do Discord. */
+function ansiColor(pct: number, text: string): string {
+  const code = pct >= 0 ? "1;32" : "1;31"; // negrito verde / negrito vermelho
+  return `\u001b[${code}m${text}\u001b[0m`;
+}
+
+const NEGOCIOS_HISTORY_LENGTH = 30;
+const NEGOCIOS_PER_ROW = 6;
+
+export function renderNegocios(userId: string) {
+  const history = getMarketHistory(NEGOCIOS_HISTORY_LENGTH);
+  const nextTick = nextMarketTick();
+
+  const rows: string[] = [];
+  for (let i = 0; i < history.length; i += NEGOCIOS_PER_ROW) {
+    const chunk = history.slice(i, i + NEGOCIOS_PER_ROW);
+    rows.push(
+      chunk
+        .map((pct) => `${pct >= 0 ? "<a:emoji_94:1508159306565156984>" : "<a:emoji_1838:1508159758685962452>"}${ansiColor(pct, formatPct(pct).padStart(5))}`)
+        .join("  ")
+    );
+  }
+  const block = "```ansi\n" + rows.join("\n") + "\n```";
+
+  const lines = [
+    "Acompanhe como o mercado de Investimentos do banco tem se comportado antes de decidir investir — a variação é a mesma pra todo mundo.",
+    "",
+    `📊 **Últimos ${history.length} lances** (mais antigo → mais recente):`,
+    block,
+    `Última variação: **${formatPct(history[history.length - 1])}** • Próxima variação <t:${Math.floor(
+      nextTick / 1000
+    )}:R>`,
+  ];
+
+  const container = infoContainer({
+    title: `${E.parceria} Negócios`,
+    description: lines.join("\n"),
+  });
+
+  const buttons = row(secondaryButton(bid("investir", userId), "Investir"));
+
+  return screen(container, buttons);
 }
