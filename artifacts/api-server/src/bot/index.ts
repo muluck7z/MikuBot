@@ -125,25 +125,67 @@ export async function startBot() {
   });
 
   client.on("interactionCreate", async (interaction) => {
-    // Empréstimos entre usuários: os botões Aceitar/Recusar/Pagar chegam por
-    // DM (fora de servidor) — tratados aqui antes do bloqueio "guild-only".
+    // Interações fora de servidor (DM) — cassino, aviator e empréstimos pessoais
+    // funcionam em DM; todo o resto segue bloqueado.
     if (!interaction.inGuild()) {
-      if (interaction.isButton() && interaction.customId.startsWith("pemp:")) {
+      const id = "customId" in interaction ? (interaction as { customId: string }).customId : "";
+      const isCassinoDM =
+        (interaction.isChatInputCommand() && interaction.commandName === "cassino") ||
+        ((interaction.isButton() || interaction.isModalSubmit()) &&
+          (id.startsWith("cassino:") || id.startsWith("aviator:")));
+      const isPempDM =
+        (interaction.isButton() || interaction.isModalSubmit()) && id.startsWith("pemp:");
+
+      if (isCassinoDM) {
+        if (isEconomyBlocked(interaction.user.id)) {
+          await replyEconomyBlocked(
+            interaction as ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction
+          );
+          return;
+        }
+        if (interaction.isChatInputCommand()) {
+          const command = commands.get("cassino");
+          if (!command) return;
+          try {
+            await command.execute(interaction as ChatInputCommandInteraction);
+          } catch (err) {
+            logger.error({ err }, "Erro no comando /cassino (DM)");
+            const payload = {
+              components: [errorContainer("Ocorreu um erro ao executar este comando.")],
+              flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+            };
+            if (interaction.replied || interaction.deferred) {
+              await interaction.followUp(payload).catch(() => null);
+            } else {
+              await interaction.reply(payload).catch(() => null);
+            }
+          }
+        } else if (interaction.isButton()) {
+          await handleButton(interaction as ButtonInteraction).catch((err) =>
+            logger.error({ err }, "Erro no botão cassino/aviator (DM)")
+          );
+        } else if (interaction.isModalSubmit()) {
+          await handleModal(interaction as ModalSubmitInteraction).catch((err) =>
+            logger.error({ err }, "Erro no modal cassino/aviator (DM)")
+          );
+        }
+        return;
+      }
+
+      if (isPempDM) {
         if (isEconomyBlocked(interaction.user.id)) {
           await replyEconomyBlocked(interaction);
           return;
         }
-        await handlePeerLoanButton(interaction).catch((err) =>
-          logger.error({ err }, "Erro no botão de empréstimo pessoal (DM)")
-        );
-      } else if (interaction.isModalSubmit() && interaction.customId.startsWith("pemp:")) {
-        if (isEconomyBlocked(interaction.user.id)) {
-          await replyEconomyBlocked(interaction);
-          return;
+        if (interaction.isButton()) {
+          await handlePeerLoanButton(interaction).catch((err) =>
+            logger.error({ err }, "Erro no botão de empréstimo pessoal (DM)")
+          );
+        } else if (interaction.isModalSubmit()) {
+          await handleModal(interaction as ModalSubmitInteraction).catch((err) =>
+            logger.error({ err }, "Erro no modal de empréstimo pessoal (DM)")
+          );
         }
-        await handleModal(interaction as ModalSubmitInteraction).catch((err) =>
-          logger.error({ err }, "Erro no modal de empréstimo pessoal (DM)")
-        );
       }
       return;
     }
