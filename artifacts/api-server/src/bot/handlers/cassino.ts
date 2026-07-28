@@ -264,19 +264,18 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
     await interaction.deferUpdate();
     const msg = interaction.message;
 
-    // ── Fase 1: cores alternando (4 edits × 320ms) ──
-    const spinCores: RoletaCor[] = ["preto", "branco", "preto", "branco"];
-    for (const c of spinCores) {
+    // ── Fase 1: cores alternando (10 edits × 320ms) ──
+    for (let i = 0; i < 10; i++) {
+      const c: RoletaCor = i % 2 === 0 ? "preto" : "branco";
       await msg.edit(renderRoletaSpinning(c, null) as never);
       await sleep(320);
     }
 
-    // ── Fase 2: cor revelada, números girando ──────────────────────────────────
-    // A direção (1→15 ou 15→1) é aleatória por rodada, como pedido.
+    // ── Fase 2: cor revelada, números girando (17 edits, início aleatório) ────
     const resultCor = result.resultCor;
     const ascending = Math.random() < 0.5;
-    let num = ascending ? 1 : ROLETA_NUMEROS;
-    for (let i = 0; i < 4; i++) {
+    let num = Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
+    for (let i = 0; i < 17; i++) {
       await msg.edit(renderRoletaSpinning(resultCor, num) as never);
       await sleep(280);
       num = ascending ? (num % ROLETA_NUMEROS) + 1 : num === 1 ? ROLETA_NUMEROS : num - 1;

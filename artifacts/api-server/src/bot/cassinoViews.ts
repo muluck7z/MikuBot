@@ -135,22 +135,21 @@ export function renderRoleta(userId: string) {
  * `numero` = null na fase de cor (apenas cores piscam), número na fase 2.
  */
 export function renderRoletaSpinning(cor: RoletaCor, numero: number | null) {
-  const emoji = cor === "preto" ? "⬛" : "⬜";
   const corLabel = cor === "preto" ? "PRETO" : "BRANCO";
 
   const lines: string[] = [""];
   if (numero === null) {
-    lines.push(`# ${emoji} ${corLabel} ${emoji}`);
+    lines.push(`# ${corLabel}`);
     lines.push("");
     lines.push("*Sorteando cor...*");
   } else {
-    lines.push(`# ${emoji} ${corLabel} ⟨${numero}⟩`);
+    lines.push(`# ${corLabel} ⟨${numero}⟩`);
     lines.push("");
     lines.push("*Sorteando número...*");
   }
 
   const container = infoContainer({
-    title: `${E.suporte} Brazino - Roleta 🎰`,
+    title: `${E.suporte} Brazino - Roleta`,
     description: lines.join("\n"),
     avatarUrl: THUMBNAIL_URL,
   });
