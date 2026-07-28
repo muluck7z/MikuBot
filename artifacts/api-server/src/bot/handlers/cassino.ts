@@ -73,9 +73,9 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
   }
 
   if (action === "aviator") {
-    await interaction.update(renderAviator(interaction.channelId, userId) as never);
-    registerAviatorMessage(interaction.channelId, userId, interaction.message as Message);
-    ensureAviatorLoop(interaction.channelId);
+    await interaction.update(renderAviator(userId) as never);
+    registerAviatorMessage(userId, interaction.message as Message);
+    ensureAviatorLoop(userId);
     return;
   }
 

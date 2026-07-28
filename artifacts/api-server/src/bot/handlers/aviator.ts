@@ -6,7 +6,6 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
-  MessageFlags,
 } from "discord.js";
 import { errorContainer, successContainer, v2EphemeralReply } from "../v2/index";
 import { renderAviator, renderAviatorResultados, renderCassinoHome } from "../cassinoViews";
@@ -47,191 +46,127 @@ async function toast(interaction: ButtonInteraction | ModalSubmitInteraction, de
   );
 }
 
-// ─── Registro dos cartões ao vivo (um por participante, nunca compartilhado) ───
+// ─── Registro do cartão ao vivo de cada usuário (individual, nunca compartilhado) ───
+//
+// Igual à Roleta: cada usuário tem sua própria sala/rodada. O painel do Aviator
+// só é editado no cartão de quem é dono dele — ninguém mais consegue mexer nem
+// ver o painel de outra pessoa sendo atualizado.
 
-const aviatorMessages = new Map<string, Map<string, Message>>(); // channelId -> (userId -> Message)
-const aviatorIntervals = new Map<string, NodeJS.Timeout>(); // channelId -> tick ativo (apostas ou voo)
-const aviatorTimeouts = new Map<string, NodeJS.Timeout>(); // channelId -> pausa pós-crash
+const aviatorMessages = new Map<string, Message>(); // userId -> cartão ao vivo dele
+const aviatorIntervals = new Map<string, NodeJS.Timeout>(); // userId -> tick ativo (apostas ou voo)
+const aviatorTimeouts = new Map<string, NodeJS.Timeout>(); // userId -> pausa pós-crash
 
-export function registerAviatorMessage(channelId: string, userId: string, message: Message) {
-  let map = aviatorMessages.get(channelId);
-  if (!map) {
-    map = new Map();
-    aviatorMessages.set(channelId, map);
-  }
-  map.set(userId, message);
+export function registerAviatorMessage(userId: string, message: Message) {
+  aviatorMessages.set(userId, message);
 }
 
-function unregisterAviatorMessage(channelId: string, userId: string) {
-  aviatorMessages.get(channelId)?.delete(userId);
+function unregisterAviatorMessage(userId: string) {
+  aviatorMessages.delete(userId);
 }
 
-/** De quem é o cartão que essa mensagem representa (se for de alguém rastreado). */
-function findCardOwner(channelId: string, messageId: string): string | undefined {
-  const map = aviatorMessages.get(channelId);
-  if (!map) return undefined;
-  for (const [uid, msg] of map) {
-    if (msg.id === messageId) return uid;
-  }
-  return undefined;
-}
+async function updateAviatorCard(userId: string) {
+  const message = aviatorMessages.get(userId);
+  if (!message) return;
 
-/**
- * Mostra o painel do Aviator sempre no cartão de quem clicou — NUNCA no cartão de
- * outra pessoa, mesmo que a pessoa tenha clicado num botão que estava no cartão de
- * outra pessoa (o mais comum: apostar clicando no painel que outro jogador abriu).
- * Isso evita várias pessoas ficando "grudadas" na mesma mensagem, o que sobrecarrega
- * as edições por segundo e trava o painel de todo mundo.
- */
-async function presentOwnCard(
-  interaction: ButtonInteraction | ModalSubmitInteraction,
-  channelId: string,
-  userId: string
-) {
-  const clickedMessageId = interaction.message?.id;
-  const owner = clickedMessageId ? findCardOwner(channelId, clickedMessageId) : undefined;
-
-  if (!owner || owner === userId) {
-    // Mensagem livre (ninguém rastreado nela ainda) ou já é o próprio cartão da
-    // pessoa — pode editar direto.
-    await interaction.update(renderAviator(channelId, userId) as never);
-    if (interaction.message) registerAviatorMessage(channelId, userId, interaction.message as Message);
-    return;
-  }
-
-  // É o cartão de outra pessoa — não mexe nele. Atualiza (ou cria) o cartão
-  // separado de quem clicou, sem tocar na mensagem alheia.
-  await interaction.deferUpdate();
-
-  const map = aviatorMessages.get(channelId);
-  const existing = map?.get(userId);
-  if (existing) {
-    try {
-      await existing.edit(renderAviator(channelId, userId) as never);
-      return;
-    } catch {
-      map?.delete(userId);
+  try {
+    await message.edit(renderAviator(userId) as never);
+  } catch (err: unknown) {
+    // Só tira do registro se a mensagem realmente não existir mais (apagada
+    // pelo usuário/mod, ou o bot perdeu acesso ao canal). Qualquer outra falha
+    // (rate limit, hiccup de rede, etc.) é passageira — o próximo tick tenta de novo.
+    const code = (err as { code?: number; rawError?: { code?: number } } | undefined)?.code
+      ?? (err as { rawError?: { code?: number } } | undefined)?.rawError?.code;
+    const isGone = code === 10008 /* Unknown Message */ || code === 10003 /* Unknown Channel */;
+    if (isGone) {
+      aviatorMessages.delete(userId);
     }
   }
-
-  const msg = await interaction.followUp(renderAviator(channelId, userId) as never);
-  registerAviatorMessage(channelId, userId, msg as Message);
 }
 
-async function broadcastAviator(channelId: string, exceptMessageId?: string) {
-  const map = aviatorMessages.get(channelId);
-  if (!map) return;
-
-  const entries = [...map.entries()].filter(([, message]) => message.id !== exceptMessageId);
-
-  // Edita todos os cartões em paralelo — com o loop sequencial de antes, cada
-  // participante a mais somava tempo de espera ao tick inteiro (e, se o tick
-  // demorasse mais que 1s, o próximo já disparava em cima, empilhando ticks).
-  await Promise.all(
-    entries.map(async ([userId, message]) => {
-      try {
-        await message.edit(renderAviator(channelId, userId) as never);
-      } catch (err: unknown) {
-        // Só tira do lobby se a mensagem realmente não existir mais (apagada
-        // pelo usuário/mod, ou o bot perdeu acesso ao canal). Qualquer outra
-        // falha (rate limit, hiccup de rede, etc.) é passageira — mantém a
-        // pessoa registrada, o próximo tick tenta editar de novo normalmente.
-        const code = (err as { code?: number; rawError?: { code?: number } } | undefined)?.code
-          ?? (err as { rawError?: { code?: number } } | undefined)?.rawError?.code;
-        const isGone = code === 10008 /* Unknown Message */ || code === 10003 /* Unknown Channel */;
-        if (isGone) {
-          map.delete(userId);
-        }
-      }
-    })
-  );
-}
-
-function clearAviatorInterval(channelId: string) {
-  const existing = aviatorIntervals.get(channelId);
+function clearAviatorInterval(userId: string) {
+  const existing = aviatorIntervals.get(userId);
   if (existing) {
     clearTimeout(existing);
-    aviatorIntervals.delete(channelId);
+    aviatorIntervals.delete(userId);
   }
 }
 
-// ─── Loops (apostas → voo → crash → idle) ──────────────────────────────────────
+// ─── Loops individuais (apostas → voo → crash → idle) ──────────────────────────
 //
-// Importante: usamos setTimeout que se reagenda a si mesmo (não setInterval).
-// setInterval dispara no relógio, sem esperar o tick anterior terminar — se um
-// tick demorasse mais que 1s (ex: muita gente na sala), o próximo já disparava
-// em cima, os ticks se acumulavam e travava tudo. Com o reagendamento manual,
-// só existe um tick rodando por vez, sempre.
+// Cada usuário tem seu próprio loop, isolado do de qualquer outro. Usamos
+// setTimeout que se reagenda a si mesmo (não setInterval), então mesmo com
+// muita gente jogando ao mesmo tempo, um tick lento de um usuário nunca
+// atrasa ou trava o painel de outro.
 
-function startBettingLoop(channelId: string) {
-  clearAviatorInterval(channelId);
+function startBettingLoop(userId: string) {
+  clearAviatorInterval(userId);
 
   const tick = async () => {
-    const room = getAviatorRoom(channelId);
+    const room = getAviatorRoom(userId);
     if (room.phase !== "betting") {
-      aviatorIntervals.delete(channelId);
+      aviatorIntervals.delete(userId);
       return;
     }
 
     const remaining = AVIATOR_BETTING_SECONDS - (Date.now() - room.phaseStartedAt) / 1000;
     if (remaining <= 0) {
-      aviatorIntervals.delete(channelId);
-      iniciarVooAviator(channelId);
-      await broadcastAviator(channelId);
-      startFlightLoop(channelId);
+      aviatorIntervals.delete(userId);
+      iniciarVooAviator(userId);
+      await updateAviatorCard(userId);
+      startFlightLoop(userId);
       return;
     }
 
-    await broadcastAviator(channelId);
-    aviatorIntervals.set(channelId, setTimeout(tick, 1000));
+    await updateAviatorCard(userId);
+    aviatorIntervals.set(userId, setTimeout(tick, 1000));
   };
 
-  aviatorIntervals.set(channelId, setTimeout(tick, 1000));
+  aviatorIntervals.set(userId, setTimeout(tick, 1000));
 }
 
-function startFlightLoop(channelId: string) {
-  clearAviatorInterval(channelId);
+function startFlightLoop(userId: string) {
+  clearAviatorInterval(userId);
 
   const tick = async () => {
-    const room = getAviatorRoom(channelId);
+    const room = getAviatorRoom(userId);
     if (room.phase !== "flying") {
-      aviatorIntervals.delete(channelId);
+      aviatorIntervals.delete(userId);
       return;
     }
 
-    const m = multiplicadorAtualAviator(channelId);
+    const m = multiplicadorAtualAviator(userId);
     if (room.crashPoint !== null && m >= room.crashPoint) {
-      aviatorIntervals.delete(channelId);
-      crasharAviator(channelId);
-      await broadcastAviator(channelId);
+      aviatorIntervals.delete(userId);
+      crasharAviator(userId);
+      await updateAviatorCard(userId);
       const timeout = setTimeout(async () => {
-        reiniciarRodadaAviator(channelId);
-        await broadcastAviator(channelId);
+        reiniciarRodadaAviator(userId);
+        await updateAviatorCard(userId);
       }, AVIATOR_CRASH_PAUSE_MS);
-      aviatorTimeouts.set(channelId, timeout);
+      aviatorTimeouts.set(userId, timeout);
       return;
     }
 
-    await broadcastAviator(channelId);
-    aviatorIntervals.set(channelId, setTimeout(tick, 1000));
+    await updateAviatorCard(userId);
+    aviatorIntervals.set(userId, setTimeout(tick, 1000));
   };
 
-  aviatorIntervals.set(channelId, setTimeout(tick, 1000));
+  aviatorIntervals.set(userId, setTimeout(tick, 1000));
 }
 
-/** Garante que a sala do canal esteja com o loop certo rodando (chamado ao abrir o painel). */
-export function ensureAviatorLoop(channelId: string) {
-  const room = getAviatorRoom(channelId);
-  if (aviatorIntervals.has(channelId)) return;
-  if (room.phase === "betting") startBettingLoop(channelId);
-  if (room.phase === "flying") startFlightLoop(channelId);
+/** Garante que a sala do usuário esteja com o loop certo rodando (chamado ao abrir o painel). */
+export function ensureAviatorLoop(userId: string) {
+  const room = getAviatorRoom(userId);
+  if (aviatorIntervals.has(userId)) return;
+  if (room.phase === "betting") startBettingLoop(userId);
+  if (room.phase === "flying") startFlightLoop(userId);
 }
 
 // ─── Mensagens de erro ──────────────────────────────────────────────────────────
 
-type ApostarAviatorReason = Extract<ApostarAviatorResult, { ok: false }>["reason"];
-type DepositarAviatorReason = Extract<DepositarAviatorResult, { ok: false }>["reason"];
-type SacarBancaAviatorReason = Extract<SacarBancaAviatorResult, { ok: false }>["reason"];
+type ApostarAviatorReason = Exclude<ApostarAviatorResult, { ok: true }>["reason"];
+type DepositarAviatorReason = Exclude<DepositarAviatorResult, { ok: true }>["reason"];
+type SacarBancaAviatorReason = Exclude<SacarBancaAviatorResult, { ok: true }>["reason"];
 
 function apostarErrorMsg(reason: ApostarAviatorReason): string {
   switch (reason) {
@@ -266,21 +201,29 @@ function sacarBancaErrorMsg(_reason: SacarBancaAviatorReason): string {
 // ─── Botões ──────────────────────────────────────────────────────────────────────
 
 export async function handleAviatorButton(interaction: ButtonInteraction, parts: string[]) {
-  // customId: aviator:<action>:_:<channelId>
-  const [, action, , channelId] = parts;
-  if (!channelId) return;
-  const userId = interaction.user.id;
+  // customId: aviator:<action>:_:<ownerId>
+  const [, action, , ownerId] = parts;
+  if (!ownerId) return;
+
+  if (interaction.user.id !== ownerId) {
+    await interaction.reply(
+      v2EphemeralReply([errorContainer("Este painel não é seu — use `/cassino` para abrir o seu.")])
+    );
+    return;
+  }
+
+  const userId = ownerId;
 
   if (action === "assistir") {
-    // Cria/atualiza só o cartão de quem clicou — nunca mexe no cartão alheio.
-    await presentOwnCard(interaction, channelId, userId);
-    ensureAviatorLoop(channelId);
+    await interaction.update(renderAviator(userId) as never);
+    if (interaction.message) registerAviatorMessage(userId, interaction.message as Message);
+    ensureAviatorLoop(userId);
     return;
   }
 
   if (action === "apostar") {
     const modal = new ModalBuilder()
-      .setCustomId(`aviator:apostar_submit:_:${channelId}`)
+      .setCustomId(`aviator:apostar_submit:_:${userId}`)
       .setTitle("Apostar no Aviator");
     const input = new TextInputBuilder()
       .setCustomId("valor")
@@ -296,7 +239,7 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
 
   if (action === "depositar") {
     const modal = new ModalBuilder()
-      .setCustomId(`aviator:depositar_submit:_:${channelId}`)
+      .setCustomId(`aviator:depositar_submit:_:${userId}`)
       .setTitle("Depositar no Aviator");
     const input = new TextInputBuilder()
       .setCustomId("valor")
@@ -312,7 +255,7 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
 
   if (action === "sacar_banca") {
     const modal = new ModalBuilder()
-      .setCustomId(`aviator:sacar_banca_submit:_:${channelId}`)
+      .setCustomId(`aviator:sacar_banca_submit:_:${userId}`)
       .setTitle("Sacar da banca do Aviator");
     const input = new TextInputBuilder()
       .setCustomId("valor")
@@ -327,10 +270,9 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
   }
 
   if (action === "sacar") {
-    // Saque da aposta em voo — nunca mexe visualmente no cartão clicado, só
-    // confirma por toast e deixa o broadcast atualizar o cartão de cada um.
+    // Saque da aposta em voo — confirma por toast e atualiza o próprio cartão.
     await interaction.deferUpdate();
-    const result = sacarAviator(channelId, userId);
+    const result = sacarAviator(userId);
 
     if (!result.ok) {
       const reason =
@@ -343,7 +285,7 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
       return;
     }
 
-    await broadcastAviator(channelId);
+    await updateAviatorCard(userId);
     await toast(
       interaction,
       `Você sacou em **${result.multiplier.toFixed(2)}x** e ganhou **${fmt(result.won)} fichas**!`,
@@ -353,42 +295,20 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
   }
 
   if (action === "resultados") {
-    const clickedMessageId = interaction.message?.id;
-    const owner = clickedMessageId ? findCardOwner(channelId, clickedMessageId) : undefined;
-
-    if (!owner || owner === userId) {
-      unregisterAviatorMessage(channelId, userId);
-      await interaction.update(renderAviatorResultados(channelId) as never);
-      return;
-    }
-
-    // Cartão de outra pessoa — mostra os resultados só pra quem clicou, sem
-    // mexer no painel ao vivo alheio.
-    const payload = renderAviatorResultados(channelId);
-    await interaction.reply({ ...payload, flags: (payload.flags as number) | MessageFlags.Ephemeral } as never);
+    await interaction.update(renderAviatorResultados(userId) as never);
     return;
   }
 
   if (action === "fechar_resultados") {
-    await presentOwnCard(interaction, channelId, userId);
+    await interaction.update(renderAviator(userId) as never);
+    if (interaction.message) registerAviatorMessage(userId, interaction.message as Message);
+    ensureAviatorLoop(userId);
     return;
   }
 
   if (action === "voltar" || action === "sair") {
-    const clickedMessageId = interaction.message?.id;
-    const owner = clickedMessageId ? findCardOwner(channelId, clickedMessageId) : undefined;
-
-    if (!owner || owner === userId) {
-      unregisterAviatorMessage(channelId, userId);
-      await interaction.update(renderCassinoHome(userId) as never);
-      return;
-    }
-
-    // Cartão de outra pessoa — não mexe nele, só some com o cartão da pessoa
-    // que clicou (se ela tinha um) e leva ela de volta pro menu, ephemeral.
-    unregisterAviatorMessage(channelId, userId);
-    const payload = renderCassinoHome(userId);
-    await interaction.reply({ ...payload, flags: (payload.flags as number) | MessageFlags.Ephemeral } as never);
+    unregisterAviatorMessage(userId);
+    await interaction.update(renderCassinoHome(userId) as never);
     return;
   }
 }
@@ -396,10 +316,18 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
 // ─── Modais ──────────────────────────────────────────────────────────────────────
 
 export async function handleAviatorModal(interaction: ModalSubmitInteraction, action: string, args: string[]) {
-  // customId: aviator:<action>:_:<channelId>
-  const channelId = args[1];
-  if (!channelId) return;
-  const userId = interaction.user.id;
+  // customId: aviator:<action>:_:<ownerId>
+  const ownerId = args[1];
+  if (!ownerId) return;
+
+  if (interaction.user.id !== ownerId) {
+    await interaction.reply(
+      v2EphemeralReply([errorContainer("Este painel não é seu — use `/cassino` para abrir o seu.")])
+    );
+    return;
+  }
+
+  const userId = ownerId;
 
   if (action === "apostar_submit") {
     const raw = interaction.fields.getTextInputValue("valor");
@@ -410,18 +338,18 @@ export async function handleAviatorModal(interaction: ModalSubmitInteraction, ac
       return;
     }
 
-    const wasIdle = getAviatorRoom(channelId).phase === "idle";
-    const result = apostarAviator(channelId, userId, valor);
+    const wasIdle = getAviatorRoom(userId).phase === "idle";
+    const result = apostarAviator(userId, valor);
 
     if (!result.ok) {
       await interaction.reply(v2EphemeralReply([errorContainer(apostarErrorMsg(result.reason))]));
       return;
     }
 
-    if (wasIdle) startBettingLoop(channelId);
+    if (wasIdle) startBettingLoop(userId);
 
-    await presentOwnCard(interaction, channelId, userId);
-    await broadcastAviator(channelId, interaction.message?.id);
+    await interaction.update(renderAviator(userId) as never);
+    if (interaction.message) registerAviatorMessage(userId, interaction.message as Message);
     return;
   }
 
@@ -441,7 +369,8 @@ export async function handleAviatorModal(interaction: ModalSubmitInteraction, ac
       return;
     }
 
-    await presentOwnCard(interaction, channelId, userId);
+    await interaction.update(renderAviator(userId) as never);
+    if (interaction.message) registerAviatorMessage(userId, interaction.message as Message);
     return;
   }
 
@@ -461,7 +390,8 @@ export async function handleAviatorModal(interaction: ModalSubmitInteraction, ac
       return;
     }
 
-    await presentOwnCard(interaction, channelId, userId);
+    await interaction.update(renderAviator(userId) as never);
+    if (interaction.message) registerAviatorMessage(userId, interaction.message as Message);
     return;
   }
 }

@@ -167,8 +167,8 @@ export async function startBot() {
       (interaction.isButton() || interaction.isModalSubmit()) &&
       interaction.customId.startsWith("banco:");
 
-    // Interações do cassino também são públicas — qualquer membro pode jogar na sua própria mesa
-    // (ou, no caso do Aviator, na mesa compartilhada do canal)
+    // Interações do cassino também são públicas — qualquer membro pode jogar na sua própria
+    // mesa (Roleta e Aviator são ambos individuais, um jogo por dono do cartão)
     const isCassinoInteraction =
       (interaction.isButton() || interaction.isModalSubmit()) &&
       (interaction.customId.startsWith("cassino:") || interaction.customId.startsWith("aviator:"));

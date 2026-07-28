@@ -127,33 +127,33 @@ function fmtMult(m: number): string {
   return `${m.toFixed(2)}x`;
 }
 
-/** customId de um botão do Aviator — não embute dono, a mesa é compartilhada pelo canal. */
-function acid(action: string, channelId: string): string {
-  return `aviator:${action}:_:${channelId}`;
+/** customId de um botão do Aviator — sempre com o dono embutido no final, igual à roleta. */
+function acid(action: string, userId: string): string {
+  return `aviator:${action}:_:${userId}`;
 }
 
-export function renderAviatorResultados(channelId: string) {
-  const room = getAviatorRoom(channelId);
+export function renderAviatorResultados(userId: string) {
+  const room = getAviatorRoom(userId);
 
   const lines =
     room.crashHistory.length > 0
       ? [room.crashHistory.map((c) => fmtMult(c)).join(" · ")]
-      : ["Nenhuma rodada registrada ainda neste canal."];
+      : ["Você ainda não jogou nenhuma rodada."];
 
   const container = infoContainer({
     title: `${E.comunidade2} Aviator — Resultados`,
-    description: [`${E.anuncio} **Últimas ${room.crashHistory.length} rodadas:**`, "", ...lines].join("\n"),
+    description: [`${E.anuncio} **Suas últimas ${room.crashHistory.length} rodadas:**`, "", ...lines].join("\n"),
     avatarUrl: THUMBNAIL_URL,
   });
 
-  const buttons = row(secondaryButton(acid("fechar_resultados", channelId), "Voltar"));
+  const buttons = row(secondaryButton(acid("fechar_resultados", userId), "Voltar"));
   return screen(container, buttons);
 }
 
-/** Painel compartilhado do Aviator — `viewerUserId` só personaliza banca/valor inicial exibidos. */
-export function renderAviator(channelId: string, viewerUserId: string) {
-  const room = getAviatorRoom(channelId);
-  const viewer = processAccount(viewerUserId);
+/** Painel individual do Aviator — cada usuário tem sua própria sala/rodada, igual à roleta. */
+export function renderAviator(userId: string) {
+  const room = getAviatorRoom(userId);
+  const viewer = processAccount(userId);
 
   if (room.phase === "idle") {
     return renderAviatorIdle(room, viewer.aviator.banca);
@@ -162,15 +162,15 @@ export function renderAviator(channelId: string, viewerUserId: string) {
     return renderAviatorBetting(room, viewer.aviator.banca, viewer.aviator.betPerRound);
   }
   if (room.phase === "flying") {
-    return renderAviatorFlying(room, viewerUserId);
+    return renderAviatorFlying(room);
   }
   return renderAviatorCrashed(room);
 }
 
 function renderAviatorIdle(room: AviatorRoomState, banca: number) {
   const lines = [
-    `${E.carregando} **Aguardando jogadores...**`,
-    "Aposte para dar início à contagem regressiva da próxima decolagem.",
+    `${E.carregando} **Pronto para decolar**`,
+    "Aposte para dar início à contagem regressiva da sua decolagem.",
     "",
     `${E.em} Sua banca: ${fmt(banca)} fichas`,
   ];
@@ -182,11 +182,11 @@ function renderAviatorIdle(room: AviatorRoomState, banca: number) {
   });
 
   const buttons = row(
-    secondaryButton(acid("apostar", room.channelId), "Iniciar"),
-    secondaryButton(acid("depositar", room.channelId), "Depositar"),
-    secondaryButton(acid("sacar_banca", room.channelId), "Sacar").setDisabled(banca <= 0),
-    secondaryButton(acid("assistir", room.channelId), "Assistir"),
-    secondaryButton(acid("voltar", room.channelId), "Voltar")
+    secondaryButton(acid("apostar", room.userId), "Iniciar"),
+    secondaryButton(acid("depositar", room.userId), "Depositar"),
+    secondaryButton(acid("sacar_banca", room.userId), "Sacar").setDisabled(banca <= 0),
+    secondaryButton(acid("resultados", room.userId), "Resultados"),
+    secondaryButton(acid("voltar", room.userId), "Voltar")
   );
 
   return screen(container, buttons);
@@ -198,17 +198,10 @@ function renderAviatorBetting(room: AviatorRoomState, banca: number, betPerRound
     Math.ceil(AVIATOR_BETTING_SECONDS - (Date.now() - room.phaseStartedAt) / 1000)
   );
 
-  const jogadores =
-    room.bets.length > 0
-      ? room.bets.map((b) => `  * <@${b.userId}> — ${fmt(b.amount)} fichas`)
-      : ["  * Nenhum jogador ainda"];
-
   const lines = [
     `${E.carregando} **Decolagem em ${remaining}s**`,
     "",
-    `${E.ticketUser} **Jogadores nesta rodada:**`,
-    ...jogadores,
-    "",
+    `${E.ticketUser} Sua aposta: ${fmt(room.bet?.amount ?? 0)} fichas`,
     `${E.em} Banca: ${fmt(banca)} fichas`,
     `${E.parceria} Valor inicial: ${fmt(betPerRound)} fichas`,
   ];
@@ -220,44 +213,30 @@ function renderAviatorBetting(room: AviatorRoomState, banca: number, betPerRound
   });
 
   const row1 = row(
-    secondaryButton(acid("apostar", room.channelId), "Apostar"),
-    secondaryButton(acid("depositar", room.channelId), "Depositar"),
-    secondaryButton(acid("sacar_banca", room.channelId), "Sacar").setDisabled(banca <= 0)
+    secondaryButton(acid("depositar", room.userId), "Depositar"),
+    secondaryButton(acid("sacar_banca", room.userId), "Sacar").setDisabled(banca <= 0)
   );
   const row2 = row(
-    secondaryButton(acid("resultados", room.channelId), "Resultados"),
-    secondaryButton(acid("assistir", room.channelId), "Assistir"),
-    secondaryButton(acid("voltar", room.channelId), "Voltar")
+    secondaryButton(acid("resultados", room.userId), "Resultados"),
+    secondaryButton(acid("voltar", room.userId), "Voltar")
   );
 
   return screen(container, row1, row2);
 }
 
-function renderAviatorFlying(room: AviatorRoomState, viewerUserId: string) {
-  const m = multiplicadorAtualAviator(room.channelId);
-
-  const voando = room.bets.filter((b) => b.cashedOutAt === null);
-  const saltaram = room.bets.filter((b) => b.cashedOutAt !== null);
-
-  const voandoLines =
-    voando.length > 0
-      ? voando.map((b) => `  * <@${b.userId}> - ${fmt(b.amount * m)} fichas`)
-      : ["  * Ninguém está voando"];
-
-  const saltaramLines = saltaram.map(
-    (b) => `  * <@${b.userId}> - saiu em ${fmtMult(b.cashedOutAt!)}, +${fmt(b.won ?? 0)} fichas`
-  );
+function renderAviatorFlying(room: AviatorRoomState) {
+  const m = multiplicadorAtualAviator(room.userId);
+  const bet = room.bet;
 
   const lines = [
     `        ${E.arrowright} **${fmtMult(m)}**`,
     "",
-    `${E.ticketUser} **Voando:**`,
-    ...voandoLines,
+    bet && bet.cashedOutAt === null
+      ? `${E.ticketUser} Voando com ${fmt(bet.amount * m)} fichas`
+      : bet && bet.cashedOutAt !== null
+        ? `${E.parceria} Você saiu em ${fmtMult(bet.cashedOutAt)}, +${fmt(bet.won ?? 0)} fichas`
+        : `${E.ticketUser} Você não apostou nessa rodada`,
   ];
-
-  if (saltaramLines.length > 0) {
-    lines.push("", `${E.parceria} **Saltou do Avião:**`, ...saltaramLines);
-  }
 
   const container = infoContainer({
     title: `${E.comunidade2} Aviator`,
@@ -265,28 +244,29 @@ function renderAviatorFlying(room: AviatorRoomState, viewerUserId: string) {
     avatarUrl: THUMBNAIL_URL,
   });
 
-  const viewerBet = room.bets.find((b) => b.userId === viewerUserId);
-  const podeSacar = !!viewerBet && viewerBet.cashedOutAt === null;
+  const podeSacar = !!bet && bet.cashedOutAt === null;
 
   const buttons = podeSacar
-    ? row(secondaryButton(acid("sacar", room.channelId), "Sacar"))
-    : row(secondaryButton(acid("assistir", room.channelId), "Assistir").setDisabled(true));
+    ? row(secondaryButton(acid("sacar", room.userId), "Sacar"))
+    : row(secondaryButton(acid("assistir", room.userId), "Assistir").setDisabled(true));
 
   return screen(container, buttons);
 }
 
 function renderAviatorCrashed(room: AviatorRoomState) {
-  const resultLines = room.bets.map((b) =>
-    b.cashedOutAt !== null
-      ? `  * <@${b.userId}> - saiu em ${fmtMult(b.cashedOutAt)} › ganhou ${fmt(b.won ?? 0)} fichas`
-      : `  * <@${b.userId}> - não sacou › perdeu ${fmt(b.amount)} fichas`
-  );
+  const bet = room.bet;
+  const resultLine =
+    bet && bet.cashedOutAt !== null
+      ? `  * Você saiu em ${fmtMult(bet.cashedOutAt)} › ganhou ${fmt(bet.won ?? 0)} fichas`
+      : bet
+        ? `  * Você não sacou › perdeu ${fmt(bet.amount)} fichas`
+        : "  * Você não apostou nessa rodada";
 
   const lines = [
     `           ${E.alerta} Explodiu em ${fmtMult(room.crashPoint ?? 1)}`,
     "",
     `${E.anuncio} **Resultado da rodada:**`,
-    ...(resultLines.length > 0 ? resultLines : ["  * Ninguém apostou nessa rodada"]),
+    resultLine,
     "",
     "**Próxima rodada em instantes**",
   ];
@@ -297,7 +277,10 @@ function renderAviatorCrashed(room: AviatorRoomState) {
     avatarUrl: THUMBNAIL_URL,
   });
 
-  const buttons = row(secondaryButton(acid("sair", room.channelId), "Sair"));
+  const buttons = row(
+    secondaryButton(acid("sair", room.userId), "Sair"),
+    secondaryButton(acid("voltar", room.userId), "Voltar")
+  );
 
   return screen(container, buttons);
 }
