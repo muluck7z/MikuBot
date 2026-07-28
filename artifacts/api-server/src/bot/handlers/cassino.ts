@@ -264,27 +264,20 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
     await interaction.deferUpdate();
     const msg = interaction.message;
 
-    // ── Fase 1: cores alternando (15 edits) — rápido acelerando, últimas 5 freiam ~2s ──
-    // Delays (ms): primeiras 10 de 60→180 linear; últimas 5 somam ≈2 000ms
-    const coreDelays = [60, 73, 87, 100, 113, 127, 140, 153, 167, 180, 260, 350, 440, 470, 480];
-    for (let i = 0; i < 15; i++) {
+    // ── Fase 1: 10 cores muito rápido, para imediatamente na cor sorteada ──
+    for (let i = 0; i < 10; i++) {
       const c: RoletaCor = i % 2 === 0 ? "preto" : "branco";
       await msg.edit(renderRoletaSpinning(c, null) as never);
-      await sleep(coreDelays[i]);
+      await sleep(80);
     }
 
-    // ── Fase 2: cor revelada, números girando (30 edits, início aleatório) ──────
-    // Delays (ms): primeiros 25 de 40→110 linear; últimos 5 freiam gradualmente
-    const numDelays: number[] = [];
-    for (let i = 0; i < 25; i++) numDelays.push(Math.round(40 + (70 * i) / 24));
-    numDelays.push(180, 280, 390, 500, 560);
-
+    // ── Fase 2: cor fixa, 10 números muito rápido, para no número sorteado ──
     const resultCor = result.resultCor;
     const ascending = Math.random() < 0.5;
     let num = Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 10; i++) {
       await msg.edit(renderRoletaSpinning(resultCor, num) as never);
-      await sleep(numDelays[i]);
+      await sleep(80);
       num = ascending ? (num % ROLETA_NUMEROS) + 1 : num === 1 ? ROLETA_NUMEROS : num - 1;
     }
 
