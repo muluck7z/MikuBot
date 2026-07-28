@@ -140,12 +140,8 @@ export function renderRoletaSpinning(cor: RoletaCor, numero: number | null) {
   const lines: string[] = [""];
   if (numero === null) {
     lines.push(`# ${corLabel}`);
-    lines.push("");
-    lines.push("*Sorteando cor...*");
   } else {
     lines.push(`# ${corLabel} ⟨${numero}⟩`);
-    lines.push("");
-    lines.push("*Sorteando número...*");
   }
 
   const container = infoContainer({

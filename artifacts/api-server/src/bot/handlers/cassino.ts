@@ -264,20 +264,20 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
     await interaction.deferUpdate();
     const msg = interaction.message;
 
-    // ── Fase 1: 10 cores muito rápido, para imediatamente na cor sorteada ──
+    // ── Fase 1: 10 cores, 1s cada ──
     for (let i = 0; i < 10; i++) {
       const c: RoletaCor = i % 2 === 0 ? "preto" : "branco";
       await msg.edit(renderRoletaSpinning(c, null) as never);
-      await sleep(80);
+      await sleep(1000);
     }
 
-    // ── Fase 2: cor fixa, 10 números muito rápido, para no número sorteado ──
+    // ── Fase 2: cor fixa, 10 números, 1s cada ──
     const resultCor = result.resultCor;
     const ascending = Math.random() < 0.5;
     let num = Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
     for (let i = 0; i < 10; i++) {
       await msg.edit(renderRoletaSpinning(resultCor, num) as never);
-      await sleep(80);
+      await sleep(1000);
       num = ascending ? (num % ROLETA_NUMEROS) + 1 : num === 1 ? ROLETA_NUMEROS : num - 1;
     }
 
