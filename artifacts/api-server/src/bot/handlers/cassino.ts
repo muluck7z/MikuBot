@@ -7,7 +7,7 @@ import {
   ActionRowBuilder,
 } from "discord.js";
 import { errorContainer, successContainer, v2EphemeralReply } from "../v2/index";
-import { renderCassinoHome, renderRoleta } from "../cassinoViews";
+import { renderCassinoHome, renderRoleta, renderAviator } from "../cassinoViews";
 import {
   depositarCassino,
   configurarRodada,
@@ -17,6 +17,8 @@ import {
   type RoletaCor,
   ROLETA_NUMEROS,
 } from "../economyStore";
+import { registerAviatorMessage, ensureAviatorLoop } from "./aviator";
+import type { Message } from "discord.js";
 
 function fmt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
@@ -67,6 +69,13 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
 
   if (action === "roleta") {
     await interaction.update(renderRoleta(userId) as never);
+    return;
+  }
+
+  if (action === "aviator") {
+    await interaction.update(renderAviator(interaction.channelId, userId) as never);
+    registerAviatorMessage(interaction.channelId, userId, interaction.message as Message);
+    ensureAviatorLoop(interaction.channelId);
     return;
   }
 

@@ -168,9 +168,10 @@ export async function startBot() {
       interaction.customId.startsWith("banco:");
 
     // Interações do cassino também são públicas — qualquer membro pode jogar na sua própria mesa
+    // (ou, no caso do Aviator, na mesa compartilhada do canal)
     const isCassinoInteraction =
       (interaction.isButton() || interaction.isModalSubmit()) &&
-      interaction.customId.startsWith("cassino:");
+      (interaction.customId.startsWith("cassino:") || interaction.customId.startsWith("aviator:"));
 
     // Commands available to all members regardless of role
     const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "administrar-saldo", "bloquear-contas", "cassino", "negocios"]);

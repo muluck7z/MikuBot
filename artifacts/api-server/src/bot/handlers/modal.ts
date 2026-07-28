@@ -3,6 +3,7 @@ import { successContainer, errorContainer, v2EphemeralReply } from "../v2/index"
 import { logger } from "../../lib/logger";
 import { handleBancoModal } from "./banco";
 import { handleCassinoModal } from "./cassino";
+import { handleAviatorModal } from "./aviator";
 import { handlePeerLoanModal } from "./peerLoan";
 
 export async function handleModal(interaction: ModalSubmitInteraction) {
@@ -15,6 +16,8 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
       await handleBancoModal(interaction, action!, args);
     } else if (ns === "cassino") {
       await handleCassinoModal(interaction, action!, args);
+    } else if (ns === "aviator") {
+      await handleAviatorModal(interaction, action!, args);
     } else if (ns === "pemp") {
       await handlePeerLoanModal(interaction, action!, args);
     } else {

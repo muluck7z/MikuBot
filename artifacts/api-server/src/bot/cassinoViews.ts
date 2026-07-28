@@ -1,5 +1,12 @@
 import { infoContainer, secondaryButton, row, MessageFlags } from "./v2/index";
-import { processAccount, ROLETA_NUMEROS } from "./economyStore";
+import {
+  processAccount,
+  ROLETA_NUMEROS,
+  getAviatorRoom,
+  multiplicadorAtualAviator,
+  AVIATOR_BETTING_SECONDS,
+  type AviatorRoomState,
+} from "./economyStore";
 
 function fmt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
@@ -13,6 +20,11 @@ const E = {
   ticketUser: "<:ticket_user:1530817417842921492>",
   ticket: "<:ticket:1508274275730063360>",
   em: "<:em:1531074006978138292>",
+  comunidade2: "<:comunidade2:1531072981688914103>",
+  carregando: "<a:a_carregandogifs:1530818101980037120>",
+  arrowright: "<a:w_arrowright5:1531492242571788368>",
+  alerta: "<a:alerta_pfbcr:1531496411160645686>",
+  anuncio: "<:anncio:1530818189523554335>",
 };
 
 // TODO: ainda não temos o arquivo da logo Brazino 777 salvo no repositório —
@@ -45,7 +57,10 @@ export function renderCassinoHome(userId: string) {
     avatarUrl: THUMBNAIL_URL,
   });
 
-  const buttons = row(secondaryButton(cid("roleta", userId), "Roleta"));
+  const buttons = row(
+    secondaryButton(cid("roleta", userId), "Roleta"),
+    secondaryButton(cid("aviator", userId), "Aviator")
+  );
 
   return screen(container, buttons);
 }
@@ -102,6 +117,179 @@ export function renderRoleta(userId: string) {
     secondaryButton(cid("sacar", userId), "Sacar").setDisabled(cassino.banca <= 0),
     secondaryButton(cid("sair", userId), "Sair")
   );
+
+  return screen(container, buttons);
+}
+
+// ─── Aviator ─────────────────────────────────────────────────────────────────────
+
+function fmtMult(m: number): string {
+  return `${m.toFixed(2)}x`;
+}
+
+/** customId de um botão do Aviator — não embute dono, a mesa é compartilhada pelo canal. */
+function acid(action: string, channelId: string): string {
+  return `aviator:${action}:_:${channelId}`;
+}
+
+export function renderAviatorResultados(channelId: string) {
+  const room = getAviatorRoom(channelId);
+
+  const lines =
+    room.crashHistory.length > 0
+      ? [room.crashHistory.map((c) => fmtMult(c)).join(" · ")]
+      : ["Nenhuma rodada registrada ainda neste canal."];
+
+  const container = infoContainer({
+    title: `${E.comunidade2} Aviator — Resultados`,
+    description: [`${E.anuncio} **Últimas ${room.crashHistory.length} rodadas:**`, "", ...lines].join("\n"),
+    avatarUrl: THUMBNAIL_URL,
+  });
+
+  const buttons = row(secondaryButton(acid("fechar_resultados", channelId), "Voltar"));
+  return screen(container, buttons);
+}
+
+/** Painel compartilhado do Aviator — `viewerUserId` só personaliza banca/valor inicial exibidos. */
+export function renderAviator(channelId: string, viewerUserId: string) {
+  const room = getAviatorRoom(channelId);
+  const viewer = processAccount(viewerUserId);
+
+  if (room.phase === "idle") {
+    return renderAviatorIdle(room, viewer.aviator.banca);
+  }
+  if (room.phase === "betting") {
+    return renderAviatorBetting(room, viewer.aviator.banca, viewer.aviator.betPerRound);
+  }
+  if (room.phase === "flying") {
+    return renderAviatorFlying(room, viewerUserId);
+  }
+  return renderAviatorCrashed(room);
+}
+
+function renderAviatorIdle(room: AviatorRoomState, banca: number) {
+  const lines = [
+    `${E.carregando} **Aguardando jogadores...**`,
+    "Aposte para dar início à contagem regressiva da próxima decolagem.",
+    "",
+    `${E.em} Sua banca: ${fmt(banca)} fichas`,
+  ];
+
+  const container = infoContainer({
+    title: `${E.comunidade2} Aviator`,
+    description: lines.join("\n"),
+    avatarUrl: THUMBNAIL_URL,
+  });
+
+  const buttons = row(
+    secondaryButton(acid("apostar", room.channelId), "Iniciar"),
+    secondaryButton(acid("depositar", room.channelId), "Depositar"),
+    secondaryButton(acid("voltar", room.channelId), "Voltar")
+  );
+
+  return screen(container, buttons);
+}
+
+function renderAviatorBetting(room: AviatorRoomState, banca: number, betPerRound: number) {
+  const remaining = Math.max(
+    0,
+    Math.ceil(AVIATOR_BETTING_SECONDS - (Date.now() - room.phaseStartedAt) / 1000)
+  );
+
+  const jogadores =
+    room.bets.length > 0
+      ? room.bets.map((b) => `  * <@${b.userId}> — ${fmt(b.amount)} fichas`)
+      : ["  * Nenhum jogador ainda"];
+
+  const lines = [
+    `${E.carregando} **Decolagem em ${remaining}s**`,
+    "",
+    `${E.ticketUser} **Jogadores nesta rodada:**`,
+    ...jogadores,
+    "",
+    `${E.em} Banca: ${fmt(banca)} fichas`,
+    `${E.parceria} Valor inicial: ${fmt(betPerRound)} fichas`,
+  ];
+
+  const container = infoContainer({
+    title: `${E.comunidade2} Aviator`,
+    description: lines.join("\n"),
+    avatarUrl: THUMBNAIL_URL,
+  });
+
+  const buttons = row(
+    secondaryButton(acid("apostar", room.channelId), "Apostar"),
+    secondaryButton(acid("depositar", room.channelId), "Depositar"),
+    secondaryButton(acid("resultados", room.channelId), "Resultados"),
+    secondaryButton(acid("voltar", room.channelId), "Voltar")
+  );
+
+  return screen(container, buttons);
+}
+
+function renderAviatorFlying(room: AviatorRoomState, viewerUserId: string) {
+  const m = multiplicadorAtualAviator(room.channelId);
+
+  const voando = room.bets.filter((b) => b.cashedOutAt === null);
+  const saltaram = room.bets.filter((b) => b.cashedOutAt !== null);
+
+  const voandoLines =
+    voando.length > 0
+      ? voando.map((b) => `  * <@${b.userId}> - ${fmt(b.amount * m)} fichas`)
+      : ["  * Ninguém está voando"];
+
+  const saltaramLines = saltaram.map(
+    (b) => `  * <@${b.userId}> - saiu em ${fmtMult(b.cashedOutAt!)}, +${fmt(b.won ?? 0)} fichas`
+  );
+
+  const lines = [
+    `        ${E.arrowright} **${fmtMult(m)}**`,
+    "",
+    `${E.ticketUser} **Voando:**`,
+    ...voandoLines,
+  ];
+
+  if (saltaramLines.length > 0) {
+    lines.push("", `${E.parceria} **Saltou do Avião:**`, ...saltaramLines);
+  }
+
+  const container = infoContainer({
+    title: `${E.comunidade2} Aviator`,
+    description: lines.join("\n"),
+    avatarUrl: THUMBNAIL_URL,
+  });
+
+  const viewerBet = room.bets.find((b) => b.userId === viewerUserId);
+  const podeSacar = !!viewerBet && viewerBet.cashedOutAt === null;
+
+  const buttons = row(secondaryButton(acid("sacar", room.channelId), "Sacar").setDisabled(!podeSacar));
+
+  return screen(container, buttons);
+}
+
+function renderAviatorCrashed(room: AviatorRoomState) {
+  const resultLines = room.bets.map((b) =>
+    b.cashedOutAt !== null
+      ? `  * <@${b.userId}> - saiu em ${fmtMult(b.cashedOutAt)} › ganhou ${fmt(b.won ?? 0)} fichas`
+      : `  * <@${b.userId}> - não sacou › perdeu ${fmt(b.amount)} fichas`
+  );
+
+  const lines = [
+    `           ${E.alerta} Explodiu em ${fmtMult(room.crashPoint ?? 1)}`,
+    "",
+    `${E.anuncio} **Resultado da rodada:**`,
+    ...(resultLines.length > 0 ? resultLines : ["  * Ninguém apostou nessa rodada"]),
+    "",
+    "**Próxima rodada em instantes**",
+  ];
+
+  const container = infoContainer({
+    title: `${E.comunidade2} Aviator`,
+    description: lines.join("\n"),
+    avatarUrl: THUMBNAIL_URL,
+  });
+
+  const buttons = row(secondaryButton(acid("sair", room.channelId), "Sair"));
 
   return screen(container, buttons);
 }

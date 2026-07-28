@@ -124,12 +124,49 @@ export interface CassinoState {
   lastResult: CassinoLastResult | null; // resultado da última rodada, exibido no painel
 }
 
+// ─── Configurações do cassino (Aviator Brazino 777) ────────────────────────────
+
+export const AVIATOR_BETTING_SECONDS = 20; // duração da fase de apostas
+export const AVIATOR_CRASH_HOUSE_EDGE = 0.99; // constante da fórmula do crash point (edge da casa)
+export const AVIATOR_GROWTH_RATE = 1.05; // taxa de crescimento do multiplicador por segundo
+export const AVIATOR_CRASH_PAUSE_MS = 5000; // pausa mostrando o resultado antes de voltar pro "idle"
+export const AVIATOR_HISTORY_SIZE = 20; // quantas rodadas o botão "Resultados" mostra
+
+/** Banca e aposta padrão do Aviator — separadas da banca da Roleta (cassino.banca). */
+export interface AviatorUserState {
+  banca: number;
+  betPerRound: number; // "Valor inicial" exibido no painel — última aposta usada
+}
+
+export interface AviatorBet {
+  userId: string;
+  amount: number; // fichas apostadas, já debitadas da banca do Aviator do usuário
+  cashedOutAt: number | null; // multiplicador em que sacou, ou null se ainda voando / perdeu
+  won: number | null; // fichas creditadas ao sacar (null se ainda não sacou)
+}
+
+export type AviatorPhase = "idle" | "betting" | "flying" | "crashed";
+
+export interface AviatorRoomState {
+  channelId: string;
+  phase: AviatorPhase;
+  bets: AviatorBet[];
+  phaseStartedAt: number; // timestamp ms de início da fase atual
+  crashPoint: number | null; // sorteado ao entrar em "flying", nunca exposto antes do crash
+  crashHistory: number[]; // últimos AVIATOR_HISTORY_SIZE crashPoints, mais recente primeiro
+}
+
+// Mapa em memória, uma sala por canal — não precisa persistir em disco (rodadas são
+// transitórias; se o bot reiniciar no meio de uma, ela simplesmente se perde).
+const aviatorRooms = new Map<string, AviatorRoomState>();
+
 export interface UserEconomy {
   fichas: number;
   pendingInvites: number; // invites não convertidos
   loans: Loan[];
   investments: InvestmentPortfolio[]; // índice 0..3 = Sala 1..4
   cassino: CassinoState;
+  aviator: AviatorUserState;
   bankLocked: boolean;
   lockDebt: number; // dívida total no momento em que a conta foi fechada
   unlockPaid: number; // quanto já foi pago desde o bloqueio, rumo ao desbloqueio
@@ -199,6 +236,7 @@ function freshUser(): UserEconomy {
     loans: [],
     investments: Array.from({ length: INVESTMENT_ROOMS }, () => freshInvestmentPortfolio()),
     cassino: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null },
+    aviator: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND },
     bankLocked: false,
     lockDebt: 0,
     unlockPaid: 0,
@@ -236,6 +274,7 @@ export function getUser(userId: string): UserEconomy {
   if (u.economyBlocked === undefined) u.economyBlocked = false;
   if (!u.cassino) u.cassino = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null };
   if (u.cassino.lastResult === undefined) u.cassino.lastResult = null;
+  if (!u.aviator) u.aviator = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND };
   return u;
 }
 
@@ -1207,4 +1246,141 @@ export function sairCassino(userId: string): { returned: number } {
   cassino.lastResult = null;
   saveData();
   return { returned };
+}
+
+// ─── Aviator (Brazino 777) ──────────────────────────────────────────────────────
+
+function freshAviatorRoom(channelId: string): AviatorRoomState {
+  return {
+    channelId,
+    phase: "idle",
+    bets: [],
+    phaseStartedAt: Date.now(),
+    crashPoint: null,
+    crashHistory: [],
+  };
+}
+
+/** Retorna (criando se preciso) a sala compartilhada do Aviator daquele canal. */
+export function getAviatorRoom(channelId: string): AviatorRoomState {
+  let room = aviatorRooms.get(channelId);
+  if (!room) {
+    room = freshAviatorRoom(channelId);
+    aviatorRooms.set(channelId, room);
+  }
+  return room;
+}
+
+export type DepositarAviatorResult =
+  | { ok: true; added: number; banca: number }
+  | { ok: false; reason: "locked" | "insufficient" | "invalid_amount" };
+
+/** Move fichas da carteira para a banca do Aviator (banca separada da banca da Roleta). */
+export function depositarAviator(userId: string, valor: number): DepositarAviatorResult {
+  if (!Number.isFinite(valor) || valor < 1) return { ok: false, reason: "invalid_amount" };
+  const user = processAccount(userId);
+  if (user.bankLocked) return { ok: false, reason: "locked" };
+  if (user.fichas < valor) return { ok: false, reason: "insufficient" };
+
+  user.fichas -= valor;
+  user.aviator.banca += valor;
+  saveData();
+  return { ok: true, added: valor, banca: user.aviator.banca };
+}
+
+export type ApostarAviatorResult =
+  | { ok: true; betPerRound: number }
+  | { ok: false; reason: "locked" | "already_bet" | "insufficient" | "wrong_phase" | "invalid_amount" };
+
+/**
+ * Aposta na rodada atual da sala compartilhada do canal — debita da banca do Aviator do
+ * usuário. Se a sala estiver "idle", essa aposta dá início à contagem regressiva de apostas.
+ */
+export function apostarAviator(channelId: string, userId: string, amount: number): ApostarAviatorResult {
+  if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "invalid_amount" };
+
+  const room = getAviatorRoom(channelId);
+  if (room.phase !== "idle" && room.phase !== "betting") return { ok: false, reason: "wrong_phase" };
+
+  const user = processAccount(userId);
+  if (user.bankLocked) return { ok: false, reason: "locked" };
+  if (room.bets.some((b) => b.userId === userId)) return { ok: false, reason: "already_bet" };
+  if (amount > user.aviator.banca) return { ok: false, reason: "insufficient" };
+
+  user.aviator.banca -= amount;
+  user.aviator.betPerRound = Math.floor(amount);
+  room.bets.push({ userId, amount: Math.floor(amount), cashedOutAt: null, won: null });
+
+  if (room.phase === "idle") {
+    room.phase = "betting";
+    room.phaseStartedAt = Date.now();
+  }
+
+  saveData();
+  return { ok: true, betPerRound: user.aviator.betPerRound };
+}
+
+/** Sorteia o crashPoint da rodada e move a sala para a fase "flying". */
+export function iniciarVooAviator(channelId: string): void {
+  const room = getAviatorRoom(channelId);
+  const r = Math.random();
+  room.crashPoint = Math.max(1, AVIATOR_CRASH_HOUSE_EDGE / (1 - r));
+  room.phase = "flying";
+  room.phaseStartedAt = Date.now();
+}
+
+/** Multiplicador atual da sala, calculado a partir do tempo real decorrido de voo. */
+export function multiplicadorAtualAviator(channelId: string): number {
+  const room = getAviatorRoom(channelId);
+  if (room.phase !== "flying") return 1;
+  const elapsedSec = (Date.now() - room.phaseStartedAt) / 1000;
+  return Math.pow(AVIATOR_GROWTH_RATE, elapsedSec);
+}
+
+export type SacarAviatorResult =
+  | { ok: true; multiplier: number; won: number }
+  | { ok: false; reason: "no_bet" | "already_cashed" | "not_flying" };
+
+/** Saca a aposta do usuário na rodada em voo, creditando aposta × multiplicador na banca. */
+export function sacarAviator(channelId: string, userId: string): SacarAviatorResult {
+  const room = getAviatorRoom(channelId);
+  if (room.phase !== "flying") return { ok: false, reason: "not_flying" };
+
+  const bet = room.bets.find((b) => b.userId === userId);
+  if (!bet) return { ok: false, reason: "no_bet" };
+  if (bet.cashedOutAt !== null) return { ok: false, reason: "already_cashed" };
+
+  const m = multiplicadorAtualAviator(channelId);
+  if (room.crashPoint !== null && m >= room.crashPoint) return { ok: false, reason: "not_flying" };
+
+  const won = Math.round(bet.amount * m);
+  bet.cashedOutAt = m;
+  bet.won = won;
+
+  const user = getUser(userId);
+  user.aviator.banca += won;
+  saveData();
+
+  return { ok: true, multiplier: m, won };
+}
+
+/** Fecha a rodada: registra o crash no histórico e move a sala para "crashed". */
+export function crasharAviator(channelId: string): { crashPoint: number; bets: AviatorBet[] } {
+  const room = getAviatorRoom(channelId);
+  const crashPoint = room.crashPoint ?? 1;
+  room.phase = "crashed";
+  room.crashHistory.unshift(crashPoint);
+  if (room.crashHistory.length > AVIATOR_HISTORY_SIZE) {
+    room.crashHistory.length = AVIATOR_HISTORY_SIZE;
+  }
+  return { crashPoint, bets: room.bets };
+}
+
+/** Reseta a sala para "idle", pronta pra próxima rodada começar assim que alguém apostar. */
+export function reiniciarRodadaAviator(channelId: string): void {
+  const room = getAviatorRoom(channelId);
+  room.phase = "idle";
+  room.bets = [];
+  room.crashPoint = null;
+  room.phaseStartedAt = Date.now();
 }
