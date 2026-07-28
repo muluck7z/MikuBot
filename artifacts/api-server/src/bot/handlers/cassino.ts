@@ -264,20 +264,23 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
     await interaction.deferUpdate();
     const msg = interaction.message;
 
-    // ── Fase 1: 10 cores, 1s cada ──
-    for (let i = 0; i < 10; i++) {
+    // ── Fase 1: 5 cores alternando, 900ms cada ──
+    // 900ms por edit mantém segurança contra o rate limit do Discord (~1 edit/s por canal)
+    for (let i = 0; i < 5; i++) {
       const c: RoletaCor = i % 2 === 0 ? "preto" : "branco";
       await msg.edit(renderRoletaSpinning(c, null) as never);
-      await sleep(500);
+      await sleep(900);
     }
 
-    // ── Fase 2: cor fixa, 10 números, 0.5s cada ──
+    // ── Fase 2: cor fixa, 5 números com desaceleração gradual ──
+    // Simula a roleta freando naturalmente — evita acúmulo na fila do rate limit
     const resultCor = result.resultCor;
     const ascending = Math.random() < 0.5;
     let num = Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
-    for (let i = 0; i < 10; i++) {
+    const delays = [600, 750, 950, 1150, 1400];
+    for (let i = 0; i < 5; i++) {
       await msg.edit(renderRoletaSpinning(resultCor, num) as never);
-      await sleep(500);
+      await sleep(delays[i]);
       num = ascending ? (num % ROLETA_NUMEROS) + 1 : num === 1 ? ROLETA_NUMEROS : num - 1;
     }
 
