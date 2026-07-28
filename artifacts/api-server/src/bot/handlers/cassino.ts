@@ -268,16 +268,16 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
     for (let i = 0; i < 10; i++) {
       const c: RoletaCor = i % 2 === 0 ? "preto" : "branco";
       await msg.edit(renderRoletaSpinning(c, null) as never);
-      await sleep(1000);
+      await sleep(500);
     }
 
-    // ── Fase 2: cor fixa, 10 números, 1s cada ──
+    // ── Fase 2: cor fixa, 10 números, 0.5s cada ──
     const resultCor = result.resultCor;
     const ascending = Math.random() < 0.5;
     let num = Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
     for (let i = 0; i < 10; i++) {
       await msg.edit(renderRoletaSpinning(resultCor, num) as never);
-      await sleep(1000);
+      await sleep(500);
       num = ascending ? (num % ROLETA_NUMEROS) + 1 : num === 1 ? ROLETA_NUMEROS : num - 1;
     }
 
