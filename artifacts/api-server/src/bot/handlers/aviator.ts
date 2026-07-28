@@ -121,67 +121,87 @@ async function presentOwnCard(
 async function broadcastAviator(channelId: string, exceptMessageId?: string) {
   const map = aviatorMessages.get(channelId);
   if (!map) return;
-  for (const [userId, message] of map) {
-    if (message.id === exceptMessageId) continue;
-    try {
-      await message.edit(renderAviator(channelId, userId) as never);
-    } catch (err: unknown) {
-      // Só tira do lobby se a mensagem realmente não existir mais (apagada pelo
-      // usuário/mod, ou o bot perdeu acesso ao canal). Qualquer outra falha
-      // (rate limit, hiccup de rede, etc.) é passageira — mantém a pessoa
-      // registrada, o próximo tick tenta editar de novo normalmente.
-      const code = (err as { code?: number; rawError?: { code?: number } } | undefined)?.code
-        ?? (err as { rawError?: { code?: number } } | undefined)?.rawError?.code;
-      const isGone = code === 10008 /* Unknown Message */ || code === 10003 /* Unknown Channel */;
-      if (isGone) {
-        map.delete(userId);
+
+  const entries = [...map.entries()].filter(([, message]) => message.id !== exceptMessageId);
+
+  // Edita todos os cartões em paralelo — com o loop sequencial de antes, cada
+  // participante a mais somava tempo de espera ao tick inteiro (e, se o tick
+  // demorasse mais que 1s, o próximo já disparava em cima, empilhando ticks).
+  await Promise.all(
+    entries.map(async ([userId, message]) => {
+      try {
+        await message.edit(renderAviator(channelId, userId) as never);
+      } catch (err: unknown) {
+        // Só tira do lobby se a mensagem realmente não existir mais (apagada
+        // pelo usuário/mod, ou o bot perdeu acesso ao canal). Qualquer outra
+        // falha (rate limit, hiccup de rede, etc.) é passageira — mantém a
+        // pessoa registrada, o próximo tick tenta editar de novo normalmente.
+        const code = (err as { code?: number; rawError?: { code?: number } } | undefined)?.code
+          ?? (err as { rawError?: { code?: number } } | undefined)?.rawError?.code;
+        const isGone = code === 10008 /* Unknown Message */ || code === 10003 /* Unknown Channel */;
+        if (isGone) {
+          map.delete(userId);
+        }
       }
-    }
-  }
+    })
+  );
 }
 
 function clearAviatorInterval(channelId: string) {
   const existing = aviatorIntervals.get(channelId);
   if (existing) {
-    clearInterval(existing);
+    clearTimeout(existing);
     aviatorIntervals.delete(channelId);
   }
 }
 
 // ─── Loops (apostas → voo → crash → idle) ──────────────────────────────────────
+//
+// Importante: usamos setTimeout que se reagenda a si mesmo (não setInterval).
+// setInterval dispara no relógio, sem esperar o tick anterior terminar — se um
+// tick demorasse mais que 1s (ex: muita gente na sala), o próximo já disparava
+// em cima, os ticks se acumulavam e travava tudo. Com o reagendamento manual,
+// só existe um tick rodando por vez, sempre.
 
 function startBettingLoop(channelId: string) {
   clearAviatorInterval(channelId);
-  const interval = setInterval(async () => {
+
+  const tick = async () => {
     const room = getAviatorRoom(channelId);
     if (room.phase !== "betting") {
-      clearAviatorInterval(channelId);
+      aviatorIntervals.delete(channelId);
       return;
     }
+
     const remaining = AVIATOR_BETTING_SECONDS - (Date.now() - room.phaseStartedAt) / 1000;
     if (remaining <= 0) {
-      clearAviatorInterval(channelId);
+      aviatorIntervals.delete(channelId);
       iniciarVooAviator(channelId);
       await broadcastAviator(channelId);
       startFlightLoop(channelId);
       return;
     }
+
     await broadcastAviator(channelId);
-  }, 1000);
-  aviatorIntervals.set(channelId, interval);
+    aviatorIntervals.set(channelId, setTimeout(tick, 1000));
+  };
+
+  aviatorIntervals.set(channelId, setTimeout(tick, 1000));
 }
 
 function startFlightLoop(channelId: string) {
   clearAviatorInterval(channelId);
-  const interval = setInterval(async () => {
+
+  const tick = async () => {
     const room = getAviatorRoom(channelId);
     if (room.phase !== "flying") {
-      clearAviatorInterval(channelId);
+      aviatorIntervals.delete(channelId);
       return;
     }
+
     const m = multiplicadorAtualAviator(channelId);
     if (room.crashPoint !== null && m >= room.crashPoint) {
-      clearAviatorInterval(channelId);
+      aviatorIntervals.delete(channelId);
       crasharAviator(channelId);
       await broadcastAviator(channelId);
       const timeout = setTimeout(async () => {
@@ -191,9 +211,12 @@ function startFlightLoop(channelId: string) {
       aviatorTimeouts.set(channelId, timeout);
       return;
     }
+
     await broadcastAviator(channelId);
-  }, 1000);
-  aviatorIntervals.set(channelId, interval);
+    aviatorIntervals.set(channelId, setTimeout(tick, 1000));
+  };
+
+  aviatorIntervals.set(channelId, setTimeout(tick, 1000));
 }
 
 /** Garante que a sala do canal esteja com o loop certo rodando (chamado ao abrir o painel). */
