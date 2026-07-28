@@ -335,7 +335,7 @@ export function renderInvestirSala(userId: string, room: number) {
     lines.push(
       `Valor atual: ${sign}${fmt(inv.balance)} fichas`,
       `Última variação: ${pctSign}${Math.round(inv.lastChangePct * 100)}%`,
-      `Tempo para a variação: <t:${Math.floor(nextTick / 1000)}:R>`
+      `Próximo orçamento em: **${Math.floor((nextTick - Date.now()) / 1000)}s**`
     );
 
     if (inv.history.length > 0) {

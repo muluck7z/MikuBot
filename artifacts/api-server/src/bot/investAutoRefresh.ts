@@ -12,7 +12,7 @@ import { processAccount } from "./economyStore";
  * a tela de investir é renderizada de novo, o timer é (re)criado do zero.
  */
 
-const REFRESH_INTERVAL_MS = 10_000;
+const REFRESH_INTERVAL_MS = 1_000; // atualiza a cada 1 segundo para o countdown real
 // segurança: se o usuário sumir sem trocar de tela (ex: fechar o Discord),
 // para de editar depois de um tempo em vez de rodar pra sempre.
 const MAX_REFRESH_MINUTES = 30;
