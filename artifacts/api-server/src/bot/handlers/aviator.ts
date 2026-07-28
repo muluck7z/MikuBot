@@ -55,6 +55,7 @@ async function toast(interaction: ButtonInteraction | ModalSubmitInteraction, de
 const aviatorMessages = new Map<string, Message>(); // userId -> cartão ao vivo dele
 const aviatorIntervals = new Map<string, NodeJS.Timeout>(); // userId -> tick ativo (apostas ou voo)
 const aviatorTimeouts = new Map<string, NodeJS.Timeout>(); // userId -> pausa pós-crash
+const aviatorEditBusy = new Map<string, boolean>(); // userId -> edit em andamento
 
 export function registerAviatorMessage(userId: string, message: Message) {
   aviatorMessages.set(userId, message);
@@ -65,9 +66,16 @@ function unregisterAviatorMessage(userId: string) {
 }
 
 async function updateAviatorCard(userId: string) {
+  // Se o edit anterior ainda não terminou, pula este tick.
+  // O discord.js enfileira requests rate-limitados em vez de lançar erro,
+  // então sem esse guard os ticks se acumulam e o painel fica cada vez
+  // mais atrasado em relação ao tempo real.
+  if (aviatorEditBusy.get(userId)) return;
+
   const message = aviatorMessages.get(userId);
   if (!message) return;
 
+  aviatorEditBusy.set(userId, true);
   try {
     await message.edit(renderAviator(userId) as never);
   } catch (err: unknown) {
@@ -80,6 +88,8 @@ async function updateAviatorCard(userId: string) {
     if (isGone) {
       aviatorMessages.delete(userId);
     }
+  } finally {
+    aviatorEditBusy.delete(userId);
   }
 }
 

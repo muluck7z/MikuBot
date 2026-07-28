@@ -44,7 +44,8 @@ interface RoletaSpinState {
 }
 
 const rouletteMessages = new Map<string, Message>();
-const rouletteStates  = new Map<string, RoletaSpinState>();
+const rouletteStates   = new Map<string, RoletaSpinState>();
+const rouletteEditBusy = new Map<string, boolean>(); // guard: edit anterior ainda em andamento
 
 function startRouletteSpin(userId: string, message: Message, resultCor: RoletaCor): void {
   rouletteMessages.set(userId, message);
@@ -62,37 +63,59 @@ function startRouletteSpin(userId: string, message: Message, resultCor: RoletaCo
     const msg   = rouletteMessages.get(userId);
     if (!state || !msg) return;
 
-    if (state.phase === 1) {
-      // ── Fase 1: cores alternando ──────────────────────────────────────────
-      const cor: RoletaCor = state.tick % 2 === 0 ? "preto" : "branco";
-      try { await msg.edit(renderRoletaSpinning(cor, null) as never); } catch { /* skip tick */ }
+    // Se o edit anterior ainda não terminou, pula este tick e agenda o próximo.
+    // Sem esse guard, o discord.js enfileira ticks rate-limitados e o painel
+    // fica cada vez mais atrasado em relação ao tempo real.
+    if (rouletteEditBusy.get(userId)) {
+      setTimeout(tick, 1000);
+      return;
+    }
 
+    rouletteEditBusy.set(userId, true);
+    try {
+      if (state.phase === 1) {
+        // ── Fase 1: cores alternando ────────────────────────────────────────
+        const cor: RoletaCor = state.tick % 2 === 0 ? "preto" : "branco";
+        await msg.edit(renderRoletaSpinning(cor, null) as never);
+
+        state.tick++;
+        if (state.tick >= ROLETA_COR_TICKS) {
+          state.phase = 2;
+          state.tick  = 0;
+        }
+        setTimeout(tick, 1000);
+
+      } else {
+        // ── Fase 2: cor fixada, percorre os 15 números um por segundo ───────
+        await msg.edit(renderRoletaSpinning(state.resultCor, state.num) as never);
+
+        state.num = state.ascending
+          ? (state.num % ROLETA_NUMEROS) + 1
+          : state.num === 1 ? ROLETA_NUMEROS : state.num - 1;
+        state.tick++;
+
+        if (state.tick >= ROLETA_NUM_TICKS) {
+          // ── Resultado final ────────────────────────────────────────────────
+          rouletteMessages.delete(userId);
+          rouletteStates.delete(userId);
+          rouletteEditBusy.delete(userId);
+          await msg.edit(renderRoleta(userId) as never);
+          markRulesSeen(userId);
+          return;
+        }
+
+        setTimeout(tick, 1000);
+      }
+    } catch {
+      // Rate limit ou erro passageiro: avança o tick sem enfileirar o edit falho
       state.tick++;
-      if (state.tick >= ROLETA_COR_TICKS) {
+      if (state.phase === 1 && state.tick >= ROLETA_COR_TICKS) {
         state.phase = 2;
         state.tick  = 0;
       }
       setTimeout(tick, 1000);
-
-    } else {
-      // ── Fase 2: cor fixada, percorre os 15 números um por segundo ─────────
-      try { await msg.edit(renderRoletaSpinning(state.resultCor, state.num) as never); } catch { /* skip tick */ }
-
-      state.num = state.ascending
-        ? (state.num % ROLETA_NUMEROS) + 1
-        : state.num === 1 ? ROLETA_NUMEROS : state.num - 1;
-      state.tick++;
-
-      if (state.tick >= ROLETA_NUM_TICKS) {
-        // ── Resultado final ──────────────────────────────────────────────────
-        rouletteMessages.delete(userId);
-        rouletteStates.delete(userId);
-        try { await msg.edit(renderRoleta(userId) as never); } catch { /* ignore */ }
-        markRulesSeen(userId);
-        return;
-      }
-
-      setTimeout(tick, 1000);
+    } finally {
+      rouletteEditBusy.delete(userId);
     }
   };
 
