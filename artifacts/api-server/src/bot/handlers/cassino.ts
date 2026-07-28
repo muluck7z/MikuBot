@@ -5,6 +5,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  type Message,
 } from "discord.js";
 import { errorContainer, successContainer, v2EphemeralReply } from "../v2/index";
 import { renderCassinoHome, renderRoleta, renderRoletaSpinning, renderAviator } from "../cassinoViews";
@@ -19,14 +20,83 @@ import {
   ROLETA_NUMEROS,
 } from "../economyStore";
 import { registerAviatorMessage, ensureAviatorLoop } from "./aviator";
-import type { Message } from "discord.js";
 
 function fmt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// ─── Animação da Roleta (mesma mecânica do Aviator) ───────────────────────────
+//
+// Usa setTimeout auto-reagendado em vez de await+sleep, igual ao Aviator.
+// Cada tick só dispara depois que o edit anterior terminou — nunca acumula
+// fila no rate limit do Discord.
+
+const ROLETA_COR_TICKS = 8;   // 8 s alternando preto/branco
+const ROLETA_NUM_TICKS = 15;  // 15 s percorrendo todos os números (1 por segundo)
+
+interface RoletaSpinState {
+  phase: 1 | 2;
+  tick: number;
+  resultCor: RoletaCor;
+  ascending: boolean;
+  num: number;
+  userId: string;
+}
+
+const rouletteMessages = new Map<string, Message>();
+const rouletteStates  = new Map<string, RoletaSpinState>();
+
+function startRouletteSpin(userId: string, message: Message, resultCor: RoletaCor): void {
+  rouletteMessages.set(userId, message);
+  rouletteStates.set(userId, {
+    phase: 1,
+    tick: 0,
+    resultCor,
+    ascending: Math.random() < 0.5,
+    num: Math.floor(Math.random() * ROLETA_NUMEROS) + 1,
+    userId,
+  });
+
+  const tick = async () => {
+    const state = rouletteStates.get(userId);
+    const msg   = rouletteMessages.get(userId);
+    if (!state || !msg) return;
+
+    if (state.phase === 1) {
+      // ── Fase 1: cores alternando ──────────────────────────────────────────
+      const cor: RoletaCor = state.tick % 2 === 0 ? "preto" : "branco";
+      try { await msg.edit(renderRoletaSpinning(cor, null) as never); } catch { /* skip tick */ }
+
+      state.tick++;
+      if (state.tick >= ROLETA_COR_TICKS) {
+        state.phase = 2;
+        state.tick  = 0;
+      }
+      setTimeout(tick, 1000);
+
+    } else {
+      // ── Fase 2: cor fixada, percorre os 15 números um por segundo ─────────
+      try { await msg.edit(renderRoletaSpinning(state.resultCor, state.num) as never); } catch { /* skip tick */ }
+
+      state.num = state.ascending
+        ? (state.num % ROLETA_NUMEROS) + 1
+        : state.num === 1 ? ROLETA_NUMEROS : state.num - 1;
+      state.tick++;
+
+      if (state.tick >= ROLETA_NUM_TICKS) {
+        // ── Resultado final ──────────────────────────────────────────────────
+        rouletteMessages.delete(userId);
+        rouletteStates.delete(userId);
+        try { await msg.edit(renderRoleta(userId) as never); } catch { /* ignore */ }
+        markRulesSeen(userId);
+        return;
+      }
+
+      setTimeout(tick, 1000);
+    }
+  };
+
+  setTimeout(tick, 1000);
 }
 
 /** Converte o texto digitado pelo usuário num inteiro positivo (aceita "50.000" ou "50000"). */
@@ -260,33 +330,12 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
       return;
     }
 
-    // Adia o update para ter tempo de animar
+    // Adia o update para ter tempo de animar (igual ao Aviator)
     await interaction.deferUpdate();
-    const msg = interaction.message;
 
-    // ── Fase 1: 5 cores alternando, 900ms cada ──
-    // 900ms por edit mantém segurança contra o rate limit do Discord (~1 edit/s por canal)
-    for (let i = 0; i < 5; i++) {
-      const c: RoletaCor = i % 2 === 0 ? "preto" : "branco";
-      await msg.edit(renderRoletaSpinning(c, null) as never);
-      await sleep(900);
-    }
-
-    // ── Fase 2: cor fixa, 5 números com desaceleração gradual ──
-    // Simula a roleta freando naturalmente — evita acúmulo na fila do rate limit
-    const resultCor = result.resultCor;
-    const ascending = Math.random() < 0.5;
-    let num = Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
-    const delays = [600, 750, 950, 1150, 1400];
-    for (let i = 0; i < 5; i++) {
-      await msg.edit(renderRoletaSpinning(resultCor, num) as never);
-      await sleep(delays[i]);
-      num = ascending ? (num % ROLETA_NUMEROS) + 1 : num === 1 ? ROLETA_NUMEROS : num - 1;
-    }
-
-    // ── Resultado final ────────────────────────────────────────────────────────
-    await msg.edit(renderRoleta(userId) as never);
-    markRulesSeen(userId);
+    // Dispara a animação em background — o handler retorna imediatamente,
+    // a roleta continua rodando via setTimeout sem travar a fila de rate limit.
+    startRouletteSpin(userId, interaction.message as Message, result.resultCor);
     return;
   }
 
