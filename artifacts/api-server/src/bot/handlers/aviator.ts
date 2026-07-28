@@ -6,6 +6,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  MessageFlags,
 } from "discord.js";
 import { errorContainer, successContainer, v2EphemeralReply } from "../v2/index";
 import { renderAviator, renderAviatorResultados, renderCassinoHome } from "../cassinoViews";
@@ -13,6 +14,7 @@ import {
   getAviatorRoom,
   apostarAviator,
   depositarAviator,
+  sacarBancaAviator,
   sacarAviator,
   iniciarVooAviator,
   crasharAviator,
@@ -22,6 +24,7 @@ import {
   AVIATOR_CRASH_PAUSE_MS,
   type ApostarAviatorResult,
   type DepositarAviatorResult,
+  type SacarBancaAviatorResult,
 } from "../economyStore";
 
 function fmt(n: number): string {
@@ -44,7 +47,7 @@ async function toast(interaction: ButtonInteraction | ModalSubmitInteraction, de
   );
 }
 
-// ─── Registro das mensagens ao vivo (uma por usuário que abriu o painel) ────────
+// ─── Registro dos cartões ao vivo (um por participante, nunca compartilhado) ───
 
 const aviatorMessages = new Map<string, Map<string, Message>>(); // channelId -> (userId -> Message)
 const aviatorIntervals = new Map<string, NodeJS.Timeout>(); // channelId -> tick ativo (apostas ou voo)
@@ -63,6 +66,58 @@ function unregisterAviatorMessage(channelId: string, userId: string) {
   aviatorMessages.get(channelId)?.delete(userId);
 }
 
+/** De quem é o cartão que essa mensagem representa (se for de alguém rastreado). */
+function findCardOwner(channelId: string, messageId: string): string | undefined {
+  const map = aviatorMessages.get(channelId);
+  if (!map) return undefined;
+  for (const [uid, msg] of map) {
+    if (msg.id === messageId) return uid;
+  }
+  return undefined;
+}
+
+/**
+ * Mostra o painel do Aviator sempre no cartão de quem clicou — NUNCA no cartão de
+ * outra pessoa, mesmo que a pessoa tenha clicado num botão que estava no cartão de
+ * outra pessoa (o mais comum: apostar clicando no painel que outro jogador abriu).
+ * Isso evita várias pessoas ficando "grudadas" na mesma mensagem, o que sobrecarrega
+ * as edições por segundo e trava o painel de todo mundo.
+ */
+async function presentOwnCard(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  channelId: string,
+  userId: string
+) {
+  const clickedMessageId = interaction.message?.id;
+  const owner = clickedMessageId ? findCardOwner(channelId, clickedMessageId) : undefined;
+
+  if (!owner || owner === userId) {
+    // Mensagem livre (ninguém rastreado nela ainda) ou já é o próprio cartão da
+    // pessoa — pode editar direto.
+    await interaction.update(renderAviator(channelId, userId) as never);
+    if (interaction.message) registerAviatorMessage(channelId, userId, interaction.message as Message);
+    return;
+  }
+
+  // É o cartão de outra pessoa — não mexe nele. Atualiza (ou cria) o cartão
+  // separado de quem clicou, sem tocar na mensagem alheia.
+  await interaction.deferUpdate();
+
+  const map = aviatorMessages.get(channelId);
+  const existing = map?.get(userId);
+  if (existing) {
+    try {
+      await existing.edit(renderAviator(channelId, userId) as never);
+      return;
+    } catch {
+      map?.delete(userId);
+    }
+  }
+
+  const msg = await interaction.followUp(renderAviator(channelId, userId) as never);
+  registerAviatorMessage(channelId, userId, msg as Message);
+}
+
 async function broadcastAviator(channelId: string, exceptMessageId?: string) {
   const map = aviatorMessages.get(channelId);
   if (!map) return;
@@ -70,8 +125,17 @@ async function broadcastAviator(channelId: string, exceptMessageId?: string) {
     if (message.id === exceptMessageId) continue;
     try {
       await message.edit(renderAviator(channelId, userId) as never);
-    } catch {
-      map.delete(userId);
+    } catch (err: unknown) {
+      // Só tira do lobby se a mensagem realmente não existir mais (apagada pelo
+      // usuário/mod, ou o bot perdeu acesso ao canal). Qualquer outra falha
+      // (rate limit, hiccup de rede, etc.) é passageira — mantém a pessoa
+      // registrada, o próximo tick tenta editar de novo normalmente.
+      const code = (err as { code?: number; rawError?: { code?: number } } | undefined)?.code
+        ?? (err as { rawError?: { code?: number } } | undefined)?.rawError?.code;
+      const isGone = code === 10008 /* Unknown Message */ || code === 10003 /* Unknown Channel */;
+      if (isGone) {
+        map.delete(userId);
+      }
     }
   }
 }
@@ -144,6 +208,7 @@ export function ensureAviatorLoop(channelId: string) {
 
 type ApostarAviatorReason = Extract<ApostarAviatorResult, { ok: false }>["reason"];
 type DepositarAviatorReason = Extract<DepositarAviatorResult, { ok: false }>["reason"];
+type SacarBancaAviatorReason = Extract<SacarBancaAviatorResult, { ok: false }>["reason"];
 
 function apostarErrorMsg(reason: ApostarAviatorReason): string {
   switch (reason) {
@@ -171,6 +236,10 @@ function depositarErrorMsg(reason: DepositarAviatorReason): string {
   }
 }
 
+function sacarBancaErrorMsg(_reason: SacarBancaAviatorReason): string {
+  return "Valor inválido — confira se não passa do que você tem na banca do Aviator.";
+}
+
 // ─── Botões ──────────────────────────────────────────────────────────────────────
 
 export async function handleAviatorButton(interaction: ButtonInteraction, parts: string[]) {
@@ -178,6 +247,13 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
   const [, action, , channelId] = parts;
   if (!channelId) return;
   const userId = interaction.user.id;
+
+  if (action === "assistir") {
+    // Cria/atualiza só o cartão de quem clicou — nunca mexe no cartão alheio.
+    await presentOwnCard(interaction, channelId, userId);
+    ensureAviatorLoop(channelId);
+    return;
+  }
 
   if (action === "apostar") {
     const modal = new ModalBuilder()
@@ -211,7 +287,25 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
     return;
   }
 
+  if (action === "sacar_banca") {
+    const modal = new ModalBuilder()
+      .setCustomId(`aviator:sacar_banca_submit:_:${channelId}`)
+      .setTitle("Sacar da banca do Aviator");
+    const input = new TextInputBuilder()
+      .setCustomId("valor")
+      .setLabel("Quanto sacar da banca pra carteira")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder("Ex: 100");
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
+
   if (action === "sacar") {
+    // Saque da aposta em voo — nunca mexe visualmente no cartão clicado, só
+    // confirma por toast e deixa o broadcast atualizar o cartão de cada um.
     await interaction.deferUpdate();
     const result = sacarAviator(channelId, userId);
 
@@ -236,20 +330,42 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
   }
 
   if (action === "resultados") {
-    unregisterAviatorMessage(channelId, userId);
-    await interaction.update(renderAviatorResultados(channelId) as never);
+    const clickedMessageId = interaction.message?.id;
+    const owner = clickedMessageId ? findCardOwner(channelId, clickedMessageId) : undefined;
+
+    if (!owner || owner === userId) {
+      unregisterAviatorMessage(channelId, userId);
+      await interaction.update(renderAviatorResultados(channelId) as never);
+      return;
+    }
+
+    // Cartão de outra pessoa — mostra os resultados só pra quem clicou, sem
+    // mexer no painel ao vivo alheio.
+    const payload = renderAviatorResultados(channelId);
+    await interaction.reply({ ...payload, flags: (payload.flags as number) | MessageFlags.Ephemeral } as never);
     return;
   }
 
   if (action === "fechar_resultados") {
-    await interaction.update(renderAviator(channelId, userId) as never);
-    registerAviatorMessage(channelId, userId, interaction.message as Message);
+    await presentOwnCard(interaction, channelId, userId);
     return;
   }
 
   if (action === "voltar" || action === "sair") {
+    const clickedMessageId = interaction.message?.id;
+    const owner = clickedMessageId ? findCardOwner(channelId, clickedMessageId) : undefined;
+
+    if (!owner || owner === userId) {
+      unregisterAviatorMessage(channelId, userId);
+      await interaction.update(renderCassinoHome(userId) as never);
+      return;
+    }
+
+    // Cartão de outra pessoa — não mexe nele, só some com o cartão da pessoa
+    // que clicou (se ela tinha um) e leva ela de volta pro menu, ephemeral.
     unregisterAviatorMessage(channelId, userId);
-    await interaction.update(renderCassinoHome(userId) as never);
+    const payload = renderCassinoHome(userId);
+    await interaction.reply({ ...payload, flags: (payload.flags as number) | MessageFlags.Ephemeral } as never);
     return;
   }
 }
@@ -281,10 +397,7 @@ export async function handleAviatorModal(interaction: ModalSubmitInteraction, ac
 
     if (wasIdle) startBettingLoop(channelId);
 
-    await interaction.update(renderAviator(channelId, userId) as never);
-    if (interaction.message) {
-      registerAviatorMessage(channelId, userId, interaction.message as Message);
-    }
+    await presentOwnCard(interaction, channelId, userId);
     await broadcastAviator(channelId, interaction.message?.id);
     return;
   }
@@ -305,7 +418,27 @@ export async function handleAviatorModal(interaction: ModalSubmitInteraction, ac
       return;
     }
 
-    await interaction.update(renderAviator(channelId, userId) as never);
+    await presentOwnCard(interaction, channelId, userId);
+    return;
+  }
+
+  if (action === "sacar_banca_submit") {
+    const raw = interaction.fields.getTextInputValue("valor");
+    const valor = parseAmount(raw);
+
+    if (valor === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido. Digite um número válido.")]));
+      return;
+    }
+
+    const result = sacarBancaAviator(userId, valor);
+
+    if (!result.ok) {
+      await interaction.reply(v2EphemeralReply([errorContainer(sacarBancaErrorMsg(result.reason))]));
+      return;
+    }
+
+    await presentOwnCard(interaction, channelId, userId);
     return;
   }
 }

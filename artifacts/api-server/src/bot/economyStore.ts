@@ -1271,6 +1271,22 @@ export function getAviatorRoom(channelId: string): AviatorRoomState {
   return room;
 }
 
+export type SacarBancaAviatorResult =
+  | { ok: true; amount: number; banca: number }
+  | { ok: false; reason: "invalid_amount" };
+
+/** Saca um valor da banca do Aviator de volta para a carteira (fichas). */
+export function sacarBancaAviator(userId: string, valor: number): SacarBancaAviatorResult {
+  const user = processAccount(userId);
+  if (!Number.isFinite(valor) || valor < 1 || valor > user.aviator.banca) {
+    return { ok: false, reason: "invalid_amount" };
+  }
+  user.aviator.banca -= valor;
+  user.fichas += valor;
+  saveData();
+  return { ok: true, amount: valor, banca: user.aviator.banca };
+}
+
 export type DepositarAviatorResult =
   | { ok: true; added: number; banca: number }
   | { ok: false; reason: "locked" | "insufficient" | "invalid_amount" };

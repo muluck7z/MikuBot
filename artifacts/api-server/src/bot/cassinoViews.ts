@@ -184,6 +184,8 @@ function renderAviatorIdle(room: AviatorRoomState, banca: number) {
   const buttons = row(
     secondaryButton(acid("apostar", room.channelId), "Iniciar"),
     secondaryButton(acid("depositar", room.channelId), "Depositar"),
+    secondaryButton(acid("sacar_banca", room.channelId), "Sacar").setDisabled(banca <= 0),
+    secondaryButton(acid("assistir", room.channelId), "Assistir"),
     secondaryButton(acid("voltar", room.channelId), "Voltar")
   );
 
@@ -217,14 +219,18 @@ function renderAviatorBetting(room: AviatorRoomState, banca: number, betPerRound
     avatarUrl: THUMBNAIL_URL,
   });
 
-  const buttons = row(
+  const row1 = row(
     secondaryButton(acid("apostar", room.channelId), "Apostar"),
     secondaryButton(acid("depositar", room.channelId), "Depositar"),
+    secondaryButton(acid("sacar_banca", room.channelId), "Sacar").setDisabled(banca <= 0)
+  );
+  const row2 = row(
     secondaryButton(acid("resultados", room.channelId), "Resultados"),
+    secondaryButton(acid("assistir", room.channelId), "Assistir"),
     secondaryButton(acid("voltar", room.channelId), "Voltar")
   );
 
-  return screen(container, buttons);
+  return screen(container, row1, row2);
 }
 
 function renderAviatorFlying(room: AviatorRoomState, viewerUserId: string) {
@@ -262,7 +268,9 @@ function renderAviatorFlying(room: AviatorRoomState, viewerUserId: string) {
   const viewerBet = room.bets.find((b) => b.userId === viewerUserId);
   const podeSacar = !!viewerBet && viewerBet.cashedOutAt === null;
 
-  const buttons = row(secondaryButton(acid("sacar", room.channelId), "Sacar").setDisabled(!podeSacar));
+  const buttons = podeSacar
+    ? row(secondaryButton(acid("sacar", room.channelId), "Sacar"))
+    : row(secondaryButton(acid("assistir", room.channelId), "Assistir").setDisabled(true));
 
   return screen(container, buttons);
 }
