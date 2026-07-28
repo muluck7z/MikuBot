@@ -7,13 +7,14 @@ import {
   ActionRowBuilder,
 } from "discord.js";
 import { errorContainer, successContainer, v2EphemeralReply } from "../v2/index";
-import { renderCassinoHome, renderRoleta, renderAviator } from "../cassinoViews";
+import { renderCassinoHome, renderRoleta, renderRoletaSpinning, renderAviator } from "../cassinoViews";
 import {
   depositarCassino,
   configurarRodada,
   girarRoleta,
   sacarCassino,
   sairCassino,
+  markRulesSeen,
   type RoletaCor,
   ROLETA_NUMEROS,
 } from "../economyStore";
@@ -22,6 +23,10 @@ import type { Message } from "discord.js";
 
 function fmt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Converte o texto digitado pelo usuário num inteiro positivo (aceita "50.000" ou "50000"). */
@@ -69,6 +74,8 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
 
   if (action === "roleta") {
     await interaction.update(renderRoleta(userId) as never);
+    // Marca as regras como vistas na primeira abertura da roleta
+    markRulesSeen(userId);
     return;
   }
 
@@ -239,8 +246,8 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
       return;
     }
 
+    // Calcula o resultado antes de animar (sem exibir ainda)
     const result = girarRoleta(userId, cor, numero);
-    await interaction.update(renderRoleta(userId) as never);
 
     if (!result.ok) {
       const reason =
@@ -249,11 +256,35 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
           : result.reason === "no_bet"
             ? "Deposite fichas na banca (**Depositar**) e garanta que ela cubra o valor por rodada (ajustável em **Rodada**)."
             : "Dados inválidos.";
-      await toast(interaction, reason, false);
+      await interaction.reply(v2EphemeralReply([errorContainer(reason)]));
       return;
     }
 
-    // O resultado (ganhou/perdeu) já aparece direto no painel — sem mensagem extra aqui.
+    // Adia o update para ter tempo de animar
+    await interaction.deferUpdate();
+    const msg = interaction.message;
+
+    // ── Fase 1: cores alternando (4 edits × 320ms) ──
+    const spinCores: RoletaCor[] = ["preto", "branco", "preto", "branco"];
+    for (const c of spinCores) {
+      await msg.edit(renderRoletaSpinning(c, null) as never);
+      await sleep(320);
+    }
+
+    // ── Fase 2: cor revelada, números girando ──────────────────────────────────
+    // A direção (1→15 ou 15→1) é aleatória por rodada, como pedido.
+    const resultCor = result.resultCor;
+    const ascending = Math.random() < 0.5;
+    let num = ascending ? 1 : ROLETA_NUMEROS;
+    for (let i = 0; i < 4; i++) {
+      await msg.edit(renderRoletaSpinning(resultCor, num) as never);
+      await sleep(280);
+      num = ascending ? (num % ROLETA_NUMEROS) + 1 : num === 1 ? ROLETA_NUMEROS : num - 1;
+    }
+
+    // ── Resultado final ────────────────────────────────────────────────────────
+    await msg.edit(renderRoleta(userId) as never);
+    markRulesSeen(userId);
     return;
   }
 

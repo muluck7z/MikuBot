@@ -111,6 +111,8 @@ export type RoletaCor = "branco" | "preto";
 export interface CassinoLastResult {
   cor: RoletaCor; // cor sorteada na roleta
   numero: number; // número sorteado na roleta
+  apostaCor: RoletaCor; // cor escolhida pelo jogador
+  apostaNumero: number; // número escolhido pelo jogador
   outcome: "cor" | "perde" | "jackpot" | "catastrofe" | "vizinho" | "vizinho_perde";
   amount: number; // quanto foi ganho ou perdido nessa rodada (sempre positivo)
   won: boolean;
@@ -122,6 +124,7 @@ export interface CassinoState {
   banca: number; // fichas depositadas na mesa (sobe a cada clique em "Depositar")
   betPerRound: number; // valor apostado por rodada (configurado em "Rodada")
   lastResult: CassinoLastResult | null; // resultado da última rodada, exibido no painel
+  seenRules: boolean; // true após o usuário ter visto as regras pela primeira vez
 }
 
 // ─── Configurações do cassino (Aviator Brazino 777) ────────────────────────────
@@ -235,7 +238,7 @@ function freshUser(): UserEconomy {
     pendingInvites: 0,
     loans: [],
     investments: Array.from({ length: INVESTMENT_ROOMS }, () => freshInvestmentPortfolio()),
-    cassino: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null },
+    cassino: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null, seenRules: false },
     aviator: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND },
     bankLocked: false,
     lockDebt: 0,
@@ -272,8 +275,9 @@ export function getUser(userId: string): UserEconomy {
   if (u.unlockPaid === undefined) u.unlockPaid = 0;
   if (u.lastTransferAt === undefined) u.lastTransferAt = 0;
   if (u.economyBlocked === undefined) u.economyBlocked = false;
-  if (!u.cassino) u.cassino = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null };
+  if (!u.cassino) u.cassino = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null, seenRules: false };
   if (u.cassino.lastResult === undefined) u.cassino.lastResult = null;
+  if (u.cassino.seenRules === undefined) u.cassino.seenRules = false;
   if (!u.aviator) u.aviator = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND };
   return u;
 }
@@ -1195,6 +1199,8 @@ export function girarRoleta(userId: string, cor: RoletaCor, numero: number): Gir
   cassino.lastResult = {
     cor: resultCor,
     numero: resultNumero,
+    apostaCor: cor,
+    apostaNumero: numero,
     outcome,
     amount: resultAmount,
     won: outcome === "cor" || outcome === "jackpot" || outcome === "vizinho",
@@ -1233,6 +1239,15 @@ export function sacarCassino(userId: string, valor: number): SacarCassinoResult 
   user.fichas += valor;
   saveData();
   return { ok: true, amount: valor, banca: cassino.banca };
+}
+
+/** Marca que o usuário já viu as regras da roleta (exibidas apenas na primeira vez). */
+export function markRulesSeen(userId: string): void {
+  const user = getUser(userId);
+  if (!user.cassino.seenRules) {
+    user.cassino.seenRules = true;
+    saveData();
+  }
 }
 
 /** Sai da mesa: devolve toda a banca restante para a carteira e encerra a sessão. */

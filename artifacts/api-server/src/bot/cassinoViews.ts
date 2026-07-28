@@ -6,6 +6,7 @@ import {
   multiplicadorAtualAviator,
   AVIATOR_BETTING_SECONDS,
   type AviatorRoomState,
+  type RoletaCor,
 } from "./economyStore";
 
 function fmt(n: number): string {
@@ -27,10 +28,6 @@ const E = {
   anuncio: "<:anncio:1530818189523554335>",
 };
 
-// TODO: ainda não temos o arquivo da logo Brazino 777 salvo no repositório —
-// assim que o Henrique enviar a imagem (upload de arquivo, não só visualização
-// no chat), troque isto por uma URL hospedada, ou pelo padrão
-// "attachment://brazino777.png" anexando o arquivo local nas respostas.
 const THUMBNAIL_URL: string | undefined = undefined;
 
 /** Monta o customId de um botão do cassino, sempre com o dono embutido no final. */
@@ -73,24 +70,31 @@ export function renderRoleta(userId: string) {
 
   let lines: string[];
 
-  if (cassino.banca > 0) {
-    // Já depositou — painel enxuto, visível para todo mundo.
+  // Mostra as regras apenas na primeira vez (banca = 0 e ainda não viu as regras).
+  // Após a primeira exibição, seenRules fica true e o painel compacto é sempre usado.
+  const showRules = cassino.banca <= 0 && !cassino.seenRules;
+
+  if (cassino.banca > 0 || cassino.seenRules) {
+    // Painel compacto — fichas na banca ou já conhece as regras
     lines = [
       `${E.ticketUser} Banca: ${fmt(cassino.banca)} fichas`,
       `${E.ticket} Valor por rodada: ${fmt(cassino.betPerRound)} fichas`,
     ];
 
     if (cassino.lastResult) {
-      const { cor, numero, won, amount, debtAdded } = cassino.lastResult;
+      const { cor, numero, apostaCor, apostaNumero, won, amount, debtAdded } = cassino.lastResult;
+      const corLabel = cor === "preto" ? "PRETO" : "BRANCO";
+      const apostaCorsLabel = apostaCor === "preto" ? "Preto" : "Branco";
       const verbo = won ? "ganhou" : "perdeu";
       lines.push("");
-      lines.push(`${E.announce} (${cor};${numero}), você ${verbo} ${fmt(amount)} fichas`);
+      lines.push(`> Você escolheu: ${apostaCorsLabel} ⟨${apostaNumero}⟩`);
+      lines.push(`${E.announce} ${corLabel} ⟨${numero}⟩, você ${verbo} ${fmt(amount)} fichas`);
       if (debtAdded && debtAdded > 0) {
         lines.push(`⚠️ Isso gerou uma dívida de ${fmt(debtAdded)} fichas em seu nome.`);
       }
     }
   } else {
-    // Ainda não depositou — mostra a explicação completa do jogo.
+    // Primeira vez: exibe as regras completas
     lines = [
       `${E.announce}`,
       "* O jogo funciona da seguinte forma:",
@@ -101,6 +105,8 @@ export function renderRoleta(userId: string) {
       `${E.em} **Saldo na carteira:** ${fmt(user.fichas)} fichas`,
     ];
   }
+
+  void showRules; // capturado implicitamente acima, suprime warning
 
   const container = infoContainer({
     title: `${E.suporte} Brazino - Roleta`,
@@ -119,6 +125,37 @@ export function renderRoleta(userId: string) {
   );
 
   return screen(container, buttons);
+}
+
+// ─── Roleta em animação (girando) ─────────────────────────────────────────────
+
+/**
+ * Painel temporário exibido durante a animação de giro.
+ * `cor`    = cor sendo exibida no momento (alterna durante a fase 1, fixa na fase 2).
+ * `numero` = null na fase de cor (apenas cores piscam), número na fase 2.
+ */
+export function renderRoletaSpinning(cor: RoletaCor, numero: number | null) {
+  const emoji = cor === "preto" ? "⬛" : "⬜";
+  const corLabel = cor === "preto" ? "PRETO" : "BRANCO";
+
+  const lines: string[] = [""];
+  if (numero === null) {
+    lines.push(`# ${emoji} ${corLabel} ${emoji}`);
+    lines.push("");
+    lines.push("*Sorteando cor...*");
+  } else {
+    lines.push(`# ${emoji} ${corLabel} ⟨${numero}⟩`);
+    lines.push("");
+    lines.push("*Sorteando número...*");
+  }
+
+  const container = infoContainer({
+    title: `${E.suporte} Brazino - Roleta 🎰`,
+    description: lines.join("\n"),
+    avatarUrl: THUMBNAIL_URL,
+  });
+
+  return screen(container);
 }
 
 // ─── Aviator ─────────────────────────────────────────────────────────────────────
