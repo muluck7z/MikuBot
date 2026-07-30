@@ -230,7 +230,7 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto quer depositar na banca")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(15)
+      .setMaxLength(16)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -244,7 +244,7 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto sacar da banca")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(15)
+      .setMaxLength(16)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -258,7 +258,7 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto quer apostar nessa rodada")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(15)
+      .setMaxLength(16)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
