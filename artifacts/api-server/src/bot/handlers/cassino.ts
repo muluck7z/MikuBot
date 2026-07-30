@@ -8,7 +8,7 @@ import {
   type Message,
 } from "discord.js";
 import { errorContainer, successContainer, v2EphemeralReply } from "../v2/index";
-import { renderCassinoHome, renderRoleta, renderRoletaSpinning, renderAviator } from "../cassinoViews";
+import { renderCassinoHome, renderRoleta, renderRoletaSpinning, renderAviator, renderMines } from "../cassinoViews";
 import {
   depositarCassino,
   configurarRodada,
@@ -18,6 +18,12 @@ import {
   markRulesSeen,
   type RoletaCor,
   ROLETA_NUMEROS,
+  depositarMines,
+  sacarBancaMines,
+  iniciarMines,
+  revelarCasaMines,
+  sacarMines,
+  reiniciarRodadaMines,
 } from "../economyStore";
 import { registerAviatorMessage, ensureAviatorLoop } from "./aviator";
 
@@ -31,15 +37,15 @@ function fmt(n: number): string {
 // Cada tick só dispara depois que o edit anterior terminou — nunca acumula
 // fila no rate limit do Discord.
 
-const ROLETA_COR_TICKS = 8;   // 8 s alternando preto/branco
-const ROLETA_NUM_TICKS = 15;  // 15 s percorrendo todos os números (1 por segundo)
+const ROLETA_COR_TICKS  = 8; // 8 s alternando preto/branco
+const ROLETA_PREVIEW_QTD = 4; // quantidade de números possíveis mostrados na prévia
+const ROLETA_SUSPENSE_TICKS = 3; // 3 s com "?" antes do resultado
 
 interface RoletaSpinState {
-  phase: 1 | 2;
+  phase: 1 | 2 | 3;
   tick: number;
   resultCor: RoletaCor;
-  ascending: boolean;
-  num: number;
+  previewNumbers: number[]; // os números possíveis exibidos na fase 2
   userId: string;
 }
 
@@ -47,14 +53,17 @@ const rouletteMessages = new Map<string, Message>();
 const rouletteStates   = new Map<string, RoletaSpinState>();
 const rouletteEditBusy = new Map<string, boolean>(); // guard: edit anterior ainda em andamento
 
+function randomRoletaNumero(): number {
+  return Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
+}
+
 function startRouletteSpin(userId: string, message: Message, resultCor: RoletaCor): void {
   rouletteMessages.set(userId, message);
   rouletteStates.set(userId, {
     phase: 1,
     tick: 0,
     resultCor,
-    ascending: Math.random() < 0.5,
-    num: Math.floor(Math.random() * ROLETA_NUMEROS) + 1,
+    previewNumbers: Array.from({ length: ROLETA_PREVIEW_QTD }, randomRoletaNumero),
     userId,
   });
 
@@ -85,16 +94,23 @@ function startRouletteSpin(userId: string, message: Message, resultCor: RoletaCo
         }
         setTimeout(tick, 1000);
 
-      } else {
-        // ── Fase 2: cor fixada, percorre os 15 números um por segundo ───────
-        await msg.edit(renderRoletaSpinning(state.resultCor, state.num) as never);
+      } else if (state.phase === 2) {
+        // ── Fase 2: cor fixada, mostra os 4 números possíveis, um por segundo ──
+        await msg.edit(renderRoletaSpinning(state.resultCor, state.previewNumbers[state.tick]) as never);
 
-        state.num = state.ascending
-          ? (state.num % ROLETA_NUMEROS) + 1
-          : state.num === 1 ? ROLETA_NUMEROS : state.num - 1;
+        state.tick++;
+        if (state.tick >= ROLETA_PREVIEW_QTD) {
+          state.phase = 3;
+          state.tick  = 0;
+        }
+        setTimeout(tick, 1000);
+
+      } else {
+        // ── Fase 3: suspense com "?" por alguns segundos antes do resultado ──
+        await msg.edit(renderRoletaSpinning(state.resultCor, "?") as never);
         state.tick++;
 
-        if (state.tick >= ROLETA_NUM_TICKS) {
+        if (state.tick >= ROLETA_SUSPENSE_TICKS) {
           // ── Resultado final ────────────────────────────────────────────────
           rouletteMessages.delete(userId);
           rouletteStates.delete(userId);
@@ -111,6 +127,9 @@ function startRouletteSpin(userId: string, message: Message, resultCor: RoletaCo
       state.tick++;
       if (state.phase === 1 && state.tick >= ROLETA_COR_TICKS) {
         state.phase = 2;
+        state.tick  = 0;
+      } else if (state.phase === 2 && state.tick >= ROLETA_PREVIEW_QTD) {
+        state.phase = 3;
         state.tick  = 0;
       }
       setTimeout(tick, 1000);
@@ -176,6 +195,89 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
     await interaction.update(renderAviator(userId) as never);
     registerAviatorMessage(userId, interaction.message as Message);
     ensureAviatorLoop(userId);
+    return;
+  }
+
+  if (action === "mines") {
+    await interaction.update(renderMines(userId) as never);
+    return;
+  }
+
+  if (action === "mines_depositar") {
+    const modal = new ModalBuilder().setCustomId(`cassino:mines_depositar_submit:_:${userId}`).setTitle("Depositar");
+    const input = new TextInputBuilder()
+      .setCustomId("valor")
+      .setLabel("Quanto quer depositar na banca")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder("Ex: 100");
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (action === "mines_sacar_banca") {
+    const modal = new ModalBuilder().setCustomId(`cassino:mines_sacar_banca_submit:_:${userId}`).setTitle("Sacar da Banca");
+    const input = new TextInputBuilder()
+      .setCustomId("valor")
+      .setLabel("Quanto sacar da banca")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10)
+      .setPlaceholder("Ex: 100");
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (action === "mines_iniciar") {
+    const modal = new ModalBuilder().setCustomId(`cassino:mines_iniciar_submit:_:${userId}`).setTitle("Iniciar Rodada");
+    const input = new TextInputBuilder()
+      .setCustomId("valor")
+      .setLabel("Quanto quer apostar nessa rodada")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(12)
+      .setPlaceholder("Ex: 100");
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (action === "mines_cell") {
+    const index = Number(parts[2]);
+    const result = revelarCasaMines(userId, index);
+
+    if (!result.ok) {
+      await interaction.deferUpdate();
+      return;
+    }
+
+    await interaction.update(renderMines(userId) as never);
+
+    if (result.outcome === "bomba") {
+      await toast(interaction, `Bomba! Você perdeu a aposta.`, false);
+    } else if (result.outcome === "limpou") {
+      await toast(interaction, `Você limpou o tabuleiro e ganhou **${fmt(result.won)} fichas**!`, true);
+    }
+    return;
+  }
+
+  if (action === "mines_sacar") {
+    const result = sacarMines(userId);
+    if (!result.ok) {
+      await interaction.deferUpdate();
+      return;
+    }
+    await interaction.update(renderMines(userId) as never);
+    await toast(interaction, `Você sacou e ganhou **${fmt(result.won)} fichas**.`, true);
+    return;
+  }
+
+  if (action === "mines_continuar") {
+    reiniciarRodadaMines(userId);
+    await interaction.update(renderMines(userId) as never);
     return;
   }
 
@@ -359,6 +461,90 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
     // Dispara a animação em background — o handler retorna imediatamente,
     // a roleta continua rodando via setTimeout sem travar a fila de rate limit.
     startRouletteSpin(userId, interaction.message as Message, result.resultCor);
+    return;
+  }
+
+  if (action === "mines_depositar_submit") {
+    const raw = interaction.fields.getTextInputValue("valor");
+    const valor = parseAmount(raw);
+
+    if (valor === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido. Digite um número válido.")]));
+      return;
+    }
+
+    const result = depositarMines(userId, valor);
+    await interaction.update(renderMines(userId) as never);
+
+    if (!result.ok) {
+      const reason =
+        result.reason === "locked"
+          ? "Sua conta está bloqueada. Pague suas dívidas em `/banco` antes de apostar."
+          : result.reason === "insufficient"
+            ? "Você não tem fichas suficientes para esse depósito."
+            : "Valor inválido.";
+      await toast(interaction, reason, false);
+      return;
+    }
+
+    await toast(interaction, `Você depositou **${fmt(result.added)} fichas** na banca.`, true);
+    return;
+  }
+
+  if (action === "mines_sacar_banca_submit") {
+    const raw = interaction.fields.getTextInputValue("valor");
+    const valor = parseAmount(raw);
+
+    if (valor === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido. Digite um número válido.")]));
+      return;
+    }
+
+    const result = sacarBancaMines(userId, valor);
+    await interaction.update(renderMines(userId) as never);
+
+    if (!result.ok) {
+      const reason =
+        result.reason === "in_round"
+          ? "Você não pode sacar da banca com uma rodada em andamento."
+          : "Valor inválido — verifique se ele não passa do que está na banca.";
+      await toast(interaction, reason, false);
+      return;
+    }
+
+    await toast(
+      interaction,
+      `Você sacou **${fmt(result.amount)} fichas** para a carteira. Banca restante: **${fmt(result.banca)} fichas**.`,
+      true
+    );
+    return;
+  }
+
+  if (action === "mines_iniciar_submit") {
+    const raw = interaction.fields.getTextInputValue("valor");
+    const valor = parseAmount(raw);
+
+    if (valor === null) {
+      await interaction.reply(v2EphemeralReply([errorContainer("Valor inválido. Digite um número válido.")]));
+      return;
+    }
+
+    const result = iniciarMines(userId, valor);
+    await interaction.update(renderMines(userId) as never);
+
+    if (!result.ok) {
+      const reason =
+        result.reason === "locked"
+          ? "Sua conta está bloqueada. Pague suas dívidas em `/banco` antes de jogar."
+          : result.reason === "insufficient"
+            ? "Sua banca não tem fichas suficientes para essa aposta."
+            : result.reason === "in_round"
+              ? "Você já tem uma rodada em andamento."
+              : "Valor inválido.";
+      await toast(interaction, reason, false);
+      return;
+    }
+
     return;
   }
 

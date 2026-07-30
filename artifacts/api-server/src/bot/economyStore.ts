@@ -163,6 +163,51 @@ export interface AviatorRoomState {
 // ela simplesmente se perde).
 const aviatorRooms = new Map<string, AviatorRoomState>();
 
+// ─── Configurações do cassino (Mines Brazino 777) ───────────────────────────────
+//
+// Tabuleiro de 5x5 (25 casas), mas 1 casa do canto vira o botão "Sacar" no
+// layout dos componentes do Discord (limite de 5 linhas x 5 botões = 25
+// componentes por mensagem, então grid + Sacar juntos não cabem em 25 se o
+// grid sozinho já usar as 25). Sobram 24 casas jogáveis.
+export const MINES_GRID_SIZE = 24;
+export const MINES_MAX_BOMBS = 18; // sorteado entre 0 e 18 bombas por rodada
+export const MINES_MULTIPLIER_VALUES = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
+export const MINES_JACKPOT_VALUE = 1000;
+export const MINES_JACKPOT_BIG_BET_THRESHOLD = 100_000_000; // acima disso, o 1000x fica mais provável
+export const MINES_JACKPOT_CHANCE_BIG_BET = 0.35; // 35% de chance do 1000x aparecer no tabuleiro (apostas grandes)
+export const MINES_JACKPOT_CHANCE_NORMAL = 0.12; // chance do 1000x aparecer em apostas normais (não é raro)
+
+export type MinesCellType = "bomba" | "multiplicador";
+export type MinesCellState = "escondida" | "revelada";
+
+export interface MinesCell {
+  type: MinesCellType;
+  value: number; // valor do multiplicador (x); irrelevante se for bomba
+  state: MinesCellState;
+}
+
+export type MinesPhase = "idle" | "jogando" | "estourou" | "sacou";
+
+export interface MinesRoomState {
+  userId: string;
+  phase: MinesPhase;
+  board: MinesCell[]; // MINES_GRID_SIZE casas
+  bombCount: number;
+  betAmount: number;
+  totalMultiplier: number; // soma dos multiplicadores das casas já reveladas
+  phaseStartedAt: number;
+}
+
+/** Banca e aposta padrão do Mines — separada da banca da Roleta e do Aviator. */
+export interface MinesUserState {
+  banca: number;
+  betPerRound: number;
+}
+
+// Mapa em memória, uma sala por usuário — rodadas são transitórias, mesma
+// lógica do Aviator (se o bot reiniciar no meio de uma partida, ela se perde).
+const minesRooms = new Map<string, MinesRoomState>();
+
 export interface UserEconomy {
   fichas: number;
   pendingInvites: number; // invites não convertidos
@@ -170,6 +215,7 @@ export interface UserEconomy {
   investments: InvestmentPortfolio[]; // índice 0..3 = Sala 1..4
   cassino: CassinoState;
   aviator: AviatorUserState;
+  mines: MinesUserState;
   bankLocked: boolean;
   lockDebt: number; // dívida total no momento em que a conta foi fechada
   unlockPaid: number; // quanto já foi pago desde o bloqueio, rumo ao desbloqueio
@@ -240,6 +286,7 @@ function freshUser(): UserEconomy {
     investments: Array.from({ length: INVESTMENT_ROOMS }, () => freshInvestmentPortfolio()),
     cassino: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND, lastResult: null, seenRules: false },
     aviator: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND },
+    mines: { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND },
     bankLocked: false,
     lockDebt: 0,
     unlockPaid: 0,
@@ -279,6 +326,7 @@ export function getUser(userId: string): UserEconomy {
   if (u.cassino.lastResult === undefined) u.cassino.lastResult = null;
   if (u.cassino.seenRules === undefined) u.cassino.seenRules = false;
   if (!u.aviator) u.aviator = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND };
+  if (!u.mines) u.mines = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND };
   return u;
 }
 
@@ -1413,5 +1461,214 @@ export function reiniciarRodadaAviator(userId: string): void {
   room.phase = "idle";
   room.bet = null;
   room.crashPoint = null;
+  room.phaseStartedAt = Date.now();
+}
+
+// ─── Mines (Brazino 777) ─────────────────────────────────────────────────────────
+
+function freshMinesRoom(userId: string): MinesRoomState {
+  return {
+    userId,
+    phase: "idle",
+    board: [],
+    bombCount: 0,
+    betAmount: 0,
+    totalMultiplier: 0,
+    phaseStartedAt: Date.now(),
+  };
+}
+
+/** Retorna (criando se preciso) a sala individual do Mines daquele usuário. */
+export function getMinesRoom(userId: string): MinesRoomState {
+  let room = minesRooms.get(userId);
+  if (!room) {
+    room = freshMinesRoom(userId);
+    minesRooms.set(userId, room);
+  }
+  return room;
+}
+
+/** Sorteia um valor de multiplicador (não-1000x) — menores são bem mais comuns que os maiores. */
+function pickMinesMultiplier(): number {
+  // Pesos decrescentes: 5x é o mais comum, 100x é o mais raro (fora o 1000x).
+  const weights = [30, 25, 20, 16, 13, 11, 9, 7, 6, 5, 4];
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * totalWeight;
+  for (let i = 0; i < MINES_MULTIPLIER_VALUES.length; i++) {
+    r -= weights[i]!;
+    if (r <= 0) return MINES_MULTIPLIER_VALUES[i]!;
+  }
+  return MINES_MULTIPLIER_VALUES[0]!;
+}
+
+/** Monta um tabuleiro novo: sorteia nº de bombas, posições e multiplicadores. */
+function buildMinesBoard(betAmount: number): { board: MinesCell[]; bombCount: number } {
+  const bombCount = Math.floor(Math.random() * (MINES_MAX_BOMBS + 1)); // 0 a MINES_MAX_BOMBS
+
+  const board: MinesCell[] = Array.from({ length: MINES_GRID_SIZE }, () => ({
+    type: "multiplicador",
+    value: pickMinesMultiplier(),
+    state: "escondida",
+  }));
+
+  // Sorteia as posições das bombas (sem repetir)
+  const bombIndexes = new Set<number>();
+  while (bombIndexes.size < bombCount) {
+    bombIndexes.add(Math.floor(Math.random() * MINES_GRID_SIZE));
+  }
+  for (const i of bombIndexes) {
+    board[i] = { type: "bomba", value: 0, state: "escondida" };
+  }
+
+  // Chance do 1000x aparecer no tabuleiro (mais provável em apostas grandes)
+  const jackpotChance =
+    betAmount > MINES_JACKPOT_BIG_BET_THRESHOLD ? MINES_JACKPOT_CHANCE_BIG_BET : MINES_JACKPOT_CHANCE_NORMAL;
+  if (Math.random() < jackpotChance) {
+    const nonBombIndexes = board
+      .map((cell, i) => (cell.type === "multiplicador" ? i : -1))
+      .filter((i) => i >= 0);
+    if (nonBombIndexes.length > 0) {
+      const target = nonBombIndexes[Math.floor(Math.random() * nonBombIndexes.length)]!;
+      board[target] = { type: "multiplicador", value: MINES_JACKPOT_VALUE, state: "escondida" };
+    }
+  }
+
+  return { board, bombCount };
+}
+
+export type DepositarMinesResult =
+  | { ok: true; added: number; banca: number }
+  | { ok: false; reason: "locked" | "insufficient" | "invalid_amount" };
+
+/** Move fichas da carteira para a banca do Mines (banca separada da Roleta e do Aviator). */
+export function depositarMines(userId: string, valor: number): DepositarMinesResult {
+  if (!Number.isFinite(valor) || valor < 1) return { ok: false, reason: "invalid_amount" };
+  const user = processAccount(userId);
+  if (user.bankLocked) return { ok: false, reason: "locked" };
+  if (user.fichas < valor) return { ok: false, reason: "insufficient" };
+
+  user.fichas -= valor;
+  user.mines.banca += valor;
+  saveData();
+  return { ok: true, added: valor, banca: user.mines.banca };
+}
+
+export type SacarBancaMinesResult =
+  | { ok: true; amount: number; banca: number }
+  | { ok: false; reason: "invalid_amount" | "in_round" };
+
+/** Saca um valor da banca do Mines de volta para a carteira (só fora de uma rodada). */
+export function sacarBancaMines(userId: string, valor: number): SacarBancaMinesResult {
+  const room = getMinesRoom(userId);
+  if (room.phase === "jogando") return { ok: false, reason: "in_round" };
+
+  const user = processAccount(userId);
+  if (!Number.isFinite(valor) || valor < 1 || valor > user.mines.banca) {
+    return { ok: false, reason: "invalid_amount" };
+  }
+  user.mines.banca -= valor;
+  user.fichas += valor;
+  saveData();
+  return { ok: true, amount: valor, banca: user.mines.banca };
+}
+
+export type IniciarMinesResult =
+  | { ok: true; betPerRound: number }
+  | { ok: false; reason: "locked" | "insufficient" | "invalid_amount" | "in_round" };
+
+/** Aposta e sorteia um tabuleiro novo — debita a banca do Mines e começa a rodada. */
+export function iniciarMines(userId: string, amount: number): IniciarMinesResult {
+  if (!Number.isFinite(amount) || amount < 1) return { ok: false, reason: "invalid_amount" };
+
+  const room = getMinesRoom(userId);
+  if (room.phase === "jogando") return { ok: false, reason: "in_round" };
+
+  const user = processAccount(userId);
+  if (user.bankLocked) return { ok: false, reason: "locked" };
+  if (amount > user.mines.banca) return { ok: false, reason: "insufficient" };
+
+  const betAmount = Math.floor(amount);
+  user.mines.banca -= betAmount;
+  user.mines.betPerRound = betAmount;
+
+  const { board, bombCount } = buildMinesBoard(betAmount);
+  room.phase = "jogando";
+  room.board = board;
+  room.bombCount = bombCount;
+  room.betAmount = betAmount;
+  room.totalMultiplier = 0;
+  room.phaseStartedAt = Date.now();
+
+  saveData();
+  return { ok: true, betPerRound: betAmount };
+}
+
+export type RevelarMinesResult =
+  | { ok: true; outcome: "segura"; value: number; totalMultiplier: number }
+  | { ok: true; outcome: "bomba" }
+  | { ok: true; outcome: "limpou"; totalMultiplier: number; won: number } // todas as casas seguras reveladas
+  | { ok: false; reason: "not_playing" | "invalid_cell" | "already_revealed" };
+
+/** Revela uma casa do tabuleiro. Bomba = estoura a rodada; multiplicador = soma aos Ganhos. */
+export function revelarCasaMines(userId: string, index: number): RevelarMinesResult {
+  const room = getMinesRoom(userId);
+  if (room.phase !== "jogando") return { ok: false, reason: "not_playing" };
+  if (!Number.isInteger(index) || index < 0 || index >= MINES_GRID_SIZE) {
+    return { ok: false, reason: "invalid_cell" };
+  }
+
+  const cell = room.board[index]!;
+  if (cell.state === "revelada") return { ok: false, reason: "already_revealed" };
+
+  cell.state = "revelada";
+
+  if (cell.type === "bomba") {
+    room.phase = "estourou";
+    return { ok: true, outcome: "bomba" };
+  }
+
+  room.totalMultiplier += cell.value;
+
+  // Se todas as casas seguras já foram reveladas, a rodada termina automaticamente
+  // e o usuário ganha o valor acumulado (igual a ter sacado no último clique).
+  const allSafeRevealed = room.board.every((c) => c.type === "bomba" || c.state === "revelada");
+  if (allSafeRevealed) {
+    const won = Math.round(room.betAmount * room.totalMultiplier);
+    const user = getUser(userId);
+    user.mines.banca += won;
+    room.phase = "sacou";
+    saveData();
+    return { ok: true, outcome: "limpou", totalMultiplier: room.totalMultiplier, won };
+  }
+
+  return { ok: true, outcome: "segura", value: cell.value, totalMultiplier: room.totalMultiplier };
+}
+
+export type SacarMinesResult =
+  | { ok: true; totalMultiplier: number; won: number }
+  | { ok: false; reason: "not_playing" };
+
+/** Saca a rodada em andamento, creditando aposta × soma dos multiplicadores na banca. */
+export function sacarMines(userId: string): SacarMinesResult {
+  const room = getMinesRoom(userId);
+  if (room.phase !== "jogando") return { ok: false, reason: "not_playing" };
+
+  const won = Math.round(room.betAmount * room.totalMultiplier);
+  const user = getUser(userId);
+  user.mines.banca += won;
+  room.phase = "sacou";
+  saveData();
+
+  return { ok: true, totalMultiplier: room.totalMultiplier, won };
+}
+
+/** Reseta a sala do usuário para "idle", pronta pra próxima rodada. */
+export function reiniciarRodadaMines(userId: string): void {
+  const room = getMinesRoom(userId);
+  room.phase = "idle";
+  room.board = [];
+  room.bombCount = 0;
+  room.betAmount = 0;
+  room.totalMultiplier = 0;
   room.phaseStartedAt = Date.now();
 }

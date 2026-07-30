@@ -1,12 +1,16 @@
-import { infoContainer, secondaryButton, row, MessageFlags } from "./v2/index";
+import type { ButtonBuilder } from "discord.js";
+import { infoContainer, secondaryButton, successButton, dangerButton, row, MessageFlags } from "./v2/index";
 import {
   processAccount,
   ROLETA_NUMEROS,
   getAviatorRoom,
   multiplicadorAtualAviator,
   AVIATOR_BETTING_SECONDS,
+  getMinesRoom,
+  MINES_GRID_SIZE,
   type AviatorRoomState,
   type RoletaCor,
+  type MinesRoomState,
 } from "./economyStore";
 
 function fmt(n: number): string {
@@ -56,7 +60,8 @@ export function renderCassinoHome(userId: string) {
 
   const buttons = row(
     secondaryButton(cid("roleta", userId), "Roleta"),
-    secondaryButton(cid("aviator", userId), "Aviator")
+    secondaryButton(cid("aviator", userId), "Aviator"),
+    secondaryButton(cid("mines", userId), "Mines")
   );
 
   return screen(container, buttons);
@@ -131,10 +136,11 @@ export function renderRoleta(userId: string) {
 
 /**
  * Painel temporário exibido durante a animação de giro.
- * `cor`    = cor sendo exibida no momento (alterna durante a fase 1, fixa na fase 2).
- * `numero` = null na fase de cor (apenas cores piscam), número na fase 2.
+ * `cor`    = cor sendo exibida no momento (alterna durante a fase 1, fixa na fase 2 em diante).
+ * `numero` = null na fase de cor (apenas cores piscam), número na fase 2 (prévia dos 4 possíveis),
+ *            "?" na fase 3 (suspense antes do resultado).
  */
-export function renderRoletaSpinning(cor: RoletaCor, numero: number | null) {
+export function renderRoletaSpinning(cor: RoletaCor, numero: number | null | "?") {
   const corLabel = cor === "preto" ? "PRETO" : "BRANCO";
 
   const lines: string[] = [""];
@@ -315,4 +321,110 @@ function renderAviatorCrashed(room: AviatorRoomState) {
   );
 
   return screen(container, buttons);
+}
+
+// ─── Mines ───────────────────────────────────────────────────────────────────
+//
+// Tabuleiro de 24 casas (5 linhas: 4 de 5 casas + 1 de 4 casas), porque a 5ª
+// linha reserva um espaço para o botão Sacar/Continuar — Discord permite no
+// máximo 5 linhas de 5 botões (25 componentes) por mensagem.
+const MINES_COLS = 5;
+
+/** Painel principal do Mines — dashboard (idle) ou tabuleiro (rodada em andamento/encerrada). */
+export function renderMines(userId: string) {
+  const room = getMinesRoom(userId);
+  if (room.phase !== "idle") {
+    return renderMinesBoard(userId, room);
+  }
+  return renderMinesIdle(userId);
+}
+
+function renderMinesIdle(userId: string) {
+  const user = processAccount(userId);
+  const mines = user.mines;
+
+  const lines = [
+    `${E.announce} Mines é um jogo de sorte e precisão, acerte seu alvo e ganhe multiplicador ou perca tudo ao errar. Temos multiplicadores de 5 até 1000x.`,
+    "",
+    `${E.em} Banca: ${fmt(mines.banca)} fichas`,
+  ];
+
+  const container = infoContainer({
+    title: `${E.comunidade2} Mines`,
+    description: lines.join("\n"),
+    avatarUrl: THUMBNAIL_URL,
+  });
+
+  const buttons = row(
+    secondaryButton(cid("mines_depositar", userId), "Depositar"),
+    secondaryButton(cid("mines_iniciar", userId), "Inicia").setDisabled(mines.banca <= 0),
+    secondaryButton(cid("mines_sacar_banca", userId), "Sacar").setDisabled(mines.banca <= 0)
+  );
+
+  return screen(container, buttons);
+}
+
+function renderMinesBoard(userId: string, room: MinesRoomState) {
+  const user = processAccount(userId);
+  const mines = user.mines;
+  const roundOver = room.phase !== "jogando";
+
+  const statusLine =
+    room.phase === "estourou"
+      ? `${E.alerta} Você caiu numa bomba e perdeu ${fmt(room.betAmount)} fichas.`
+      : room.phase === "sacou"
+        ? `${E.parceria} Você sacou e ganhou ${fmt(Math.round(room.betAmount * room.totalMultiplier))} fichas.`
+        : "";
+
+  const lines = [
+    `${E.em} Banca: ${fmt(mines.banca)} fichas`,
+    `${E.parceria} Valor de aposta: ${fmt(room.betAmount)} fichas`,
+    `${E.ticketUser} Ganhos: ${room.totalMultiplier}x`,
+    ...(statusLine ? ["", statusLine] : []),
+  ];
+
+  const container = infoContainer({
+    title: `${E.comunidade2} Mines`,
+    description: lines.join("\n"),
+    avatarUrl: THUMBNAIL_URL,
+  });
+
+  const totalRows = Math.ceil(MINES_GRID_SIZE / MINES_COLS);
+  const rows: ReturnType<typeof row>[] = [];
+
+  for (let r = 0; r < totalRows; r++) {
+    const startIdx = r * MINES_COLS;
+    const isLastRow = r === totalRows - 1;
+    const cellsInRow = isLastRow ? MINES_GRID_SIZE - startIdx : MINES_COLS;
+
+    const btns: ButtonBuilder[] = [];
+    for (let c = 0; c < cellsInRow; c++) {
+      const idx = startIdx + c;
+      const cell = room.board[idx]!;
+      const actuallyRevealed = cell.state === "revelada";
+      const shown = actuallyRevealed || roundOver;
+      const label = shown ? (cell.type === "bomba" ? "Bomba" : `${cell.value}x`) : "•";
+
+      const btn = actuallyRevealed
+        ? cell.type === "bomba"
+          ? dangerButton(cid("mines_cell", userId, idx), label)
+          : successButton(cid("mines_cell", userId, idx), label)
+        : secondaryButton(cid("mines_cell", userId, idx), label);
+
+      btn.setDisabled(actuallyRevealed || roundOver);
+      btns.push(btn);
+    }
+
+    if (isLastRow) {
+      if (roundOver) {
+        btns.push(secondaryButton(cid("mines_continuar", userId), "Continuar"));
+      } else {
+        btns.push(secondaryButton(cid("mines_sacar", userId), "Sacar"));
+      }
+    }
+
+    rows.push(row(...btns));
+  }
+
+  return screen(container, ...rows);
 }
