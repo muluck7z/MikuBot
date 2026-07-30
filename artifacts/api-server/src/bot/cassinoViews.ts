@@ -17,6 +17,10 @@ function fmt(n: number): string {
   return Math.round(n).toLocaleString("pt-BR");
 }
 
+// Emojis usados como ícone dos botões do Mines (bomba e vida extra do anjo).
+const MINES_JOKER_EMOJI = { name: "joker", id: "1532518541012766770" };
+const MINES_ANJO_EMOJI = { name: "_i", id: "1530809430810296476" };
+
 // ─── Emojis customizados ────────────────────────────────────────────────────────
 const E = {
   parceria: "<:parceria:1531111024369995868>",
@@ -402,13 +406,18 @@ function renderMinesBoard(userId: string, room: MinesRoomState) {
       const idx = startIdx + c;
       const cell = room.board[idx]!;
       const actuallyRevealed = cell.state === "revelada";
-      const shown = actuallyRevealed || roundOver;
-      const label = shown ? (cell.type === "bomba" ? "Bomba" : `${cell.value}x`) : "•";
+      const label = actuallyRevealed
+        ? cell.type === "bomba" || cell.type === "anjo"
+          ? "\u200b"
+          : `${cell.value}x`
+        : "\u200b";
 
       const btn = actuallyRevealed
         ? cell.type === "bomba"
-          ? dangerButton(cid("mines_cell", userId, idx), label)
-          : successButton(cid("mines_cell", userId, idx), label)
+          ? dangerButton(cid("mines_cell", userId, idx), label).setEmoji(MINES_JOKER_EMOJI)
+          : cell.type === "anjo"
+            ? successButton(cid("mines_cell", userId, idx), label).setEmoji(MINES_ANJO_EMOJI)
+            : successButton(cid("mines_cell", userId, idx), label)
         : secondaryButton(cid("mines_cell", userId, idx), label);
 
       btn.setDisabled(actuallyRevealed || roundOver);

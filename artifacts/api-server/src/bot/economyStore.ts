@@ -12,14 +12,14 @@ export const INVEST_TICK_MS = 1 * 60 * 1000; // mercado de investimentos atualiz
 
 // ─── Configurações do banco ────────────────────────────────────────────────────
 
-export const MAX_LOAN_AMOUNT = 50000; // valor máximo que pode ser pego por empréstimo
+export const MAX_LOAN_AMOUNT = 150000; // valor máximo que pode ser pego por empréstimo
 
 export const INVITE_VALUE = 200; // fichas por invite convertido
 export const LOAN_INTEREST = 0.3; // 30% de juros ao pegar o empréstimo
 export const LOAN_DUE_DAYS = 10; // prazo original para pagar
 export const LOAN_LOCK_DAYS = 20; // dias (desde a retirada) até a conta ser fechada
 export const LOAN_LATE_DAILY_RATE = 0.05; // juros extra por dia de atraso (após o vencimento)
-export const MAX_ACTIVE_LOANS = 2;
+export const MAX_ACTIVE_LOANS = 3;
 export const UNLOCK_THRESHOLD = 0.3; // 30% da dívida travada precisa ser paga para desbloquear
 
 // Enquanto o usuário tem dívida de empréstimo ativa, o banco fica mais rígido
@@ -177,12 +177,12 @@ export const MINES_JACKPOT_BIG_BET_THRESHOLD = 100_000_000; // acima disso, o 10
 export const MINES_JACKPOT_CHANCE_BIG_BET = 0.35; // 35% de chance do 1000x aparecer no tabuleiro (apostas grandes)
 export const MINES_JACKPOT_CHANCE_NORMAL = 0.12; // chance do 1000x aparecer em apostas normais (não é raro)
 
-export type MinesCellType = "bomba" | "multiplicador";
+export type MinesCellType = "bomba" | "multiplicador" | "anjo";
 export type MinesCellState = "escondida" | "revelada";
 
 export interface MinesCell {
   type: MinesCellType;
-  value: number; // valor do multiplicador (x); irrelevante se for bomba
+  value: number; // valor do multiplicador (x); irrelevante se for bomba ou anjo
   state: MinesCellState;
 }
 
@@ -196,6 +196,7 @@ export interface MinesRoomState {
   betAmount: number;
   totalMultiplier: number; // soma dos multiplicadores das casas já reveladas
   phaseStartedAt: number;
+  extraLife: boolean; // true depois de revelar o anjo — protege de uma bomba, uma vez por partida
 }
 
 /** Banca e aposta padrão do Mines — separada da banca da Roleta e do Aviator. */
@@ -1141,6 +1142,43 @@ export function configurarRodada(userId: string, valor: number): ConfigurarRodad
   return { ok: true, betPerRound: user.cassino.betPerRound };
 }
 
+export type PrepararGiroRoletaResult =
+  | { ok: true; resultCor: RoletaCor; previewNumbers: number[]; betAmount: number }
+  | { ok: false; reason: "locked" | "no_bet" | "invalid_input" };
+
+/**
+ * Primeira etapa do giro: valida a aposta, sorteia a cor final e os 4 números
+ * "candidatos" que serão exibidos na animação. O número vencedor ainda NÃO é
+ * decidido aqui — só depois que os 4 candidatos já foram mostrados na tela
+ * (ver resolverGiroRoleta), e sempre será um deles.
+ */
+export function prepararGiroRoleta(userId: string, cor: RoletaCor, numero: number): PrepararGiroRoletaResult {
+  if (cor !== "branco" && cor !== "preto") return { ok: false, reason: "invalid_input" };
+  if (!Number.isInteger(numero) || numero < 1 || numero > ROLETA_NUMEROS) {
+    return { ok: false, reason: "invalid_input" };
+  }
+
+  const user = processAccount(userId);
+  if (user.bankLocked) return { ok: false, reason: "locked" };
+
+  const cassino = user.cassino;
+  const betAmount = cassino.betPerRound;
+  if (betAmount <= 0 || cassino.banca < betAmount) {
+    return { ok: false, reason: "no_bet" };
+  }
+
+  const resultCor: RoletaCor = Math.random() < 0.5 ? "branco" : "preto";
+
+  // 4 números candidatos, sem repetição — o resultado final sai daqui.
+  const previewSet = new Set<number>();
+  while (previewSet.size < 4) {
+    previewSet.add(Math.floor(Math.random() * ROLETA_NUMEROS) + 1);
+  }
+  const previewNumbers = Array.from(previewSet);
+
+  return { ok: true, resultCor, previewNumbers, betAmount };
+}
+
 export type GirarRoletaResult =
   | {
       ok: true;
@@ -1157,24 +1195,27 @@ export type GirarRoletaResult =
     }
   | { ok: false; reason: "locked" | "no_bet" | "invalid_input" };
 
-/** Gira a roleta usando o valor de aposta por rodada já definido (via configurarRodada). */
-export function girarRoleta(userId: string, cor: RoletaCor, numero: number): GirarRoletaResult {
+/**
+ * Segunda etapa do giro: chamada depois que a animação já mostrou os 4
+ * números candidatos (ver prepararGiroRoleta) — `resultNumero` precisa ser
+ * um deles, sorteado só agora. Aplica o resultado (paga ou desconta a banca).
+ */
+export function resolverGiroRoleta(
+  userId: string,
+  cor: RoletaCor,
+  numero: number,
+  resultCor: RoletaCor,
+  resultNumero: number,
+  betAmount: number
+): GirarRoletaResult {
   if (cor !== "branco" && cor !== "preto") return { ok: false, reason: "invalid_input" };
   if (!Number.isInteger(numero) || numero < 1 || numero > ROLETA_NUMEROS) {
     return { ok: false, reason: "invalid_input" };
   }
 
   const user = processAccount(userId);
-  if (user.bankLocked) return { ok: false, reason: "locked" };
-
   const cassino = user.cassino;
-  const betAmount = cassino.betPerRound;
-  if (betAmount <= 0 || cassino.banca < betAmount) {
-    return { ok: false, reason: "no_bet" };
-  }
 
-  const resultCor: RoletaCor = Math.random() < 0.5 ? "branco" : "preto";
-  const resultNumero = Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
   const colorHit = resultCor === cor;
   const numberHit = resultNumero === numero;
   const vizinhoHit = !numberHit && isNumeroVizinho(resultNumero, numero, ROLETA_NUMEROS);
@@ -1475,6 +1516,7 @@ function freshMinesRoom(userId: string): MinesRoomState {
     betAmount: 0,
     totalMultiplier: 0,
     phaseStartedAt: Date.now(),
+    extraLife: false,
   };
 }
 
@@ -1518,6 +1560,13 @@ function buildMinesBoard(betAmount: number): { board: MinesCell[]; bombCount: nu
   }
   for (const i of bombIndexes) {
     board[i] = { type: "bomba", value: 0, state: "escondida" };
+  }
+
+  // Sorteia a casa do anjo (vida extra) — sempre uma por partida, numa casa segura.
+  const nonBombForAnjo = board.map((cell, i) => (cell.type === "multiplicador" ? i : -1)).filter((i) => i >= 0);
+  if (nonBombForAnjo.length > 0) {
+    const anjoIndex = nonBombForAnjo[Math.floor(Math.random() * nonBombForAnjo.length)]!;
+    board[anjoIndex] = { type: "anjo", value: 0, state: "escondida" };
   }
 
   // Chance do 1000x aparecer no tabuleiro (mais provável em apostas grandes)
@@ -1598,6 +1647,7 @@ export function iniciarMines(userId: string, amount: number): IniciarMinesResult
   room.betAmount = betAmount;
   room.totalMultiplier = 0;
   room.phaseStartedAt = Date.now();
+  room.extraLife = false;
 
   saveData();
   return { ok: true, betPerRound: betAmount };
@@ -1606,10 +1656,12 @@ export function iniciarMines(userId: string, amount: number): IniciarMinesResult
 export type RevelarMinesResult =
   | { ok: true; outcome: "segura"; value: number; totalMultiplier: number }
   | { ok: true; outcome: "bomba" }
+  | { ok: true; outcome: "bomba_protegida"; totalMultiplier: number }
+  | { ok: true; outcome: "anjo"; totalMultiplier: number }
   | { ok: true; outcome: "limpou"; totalMultiplier: number; won: number } // todas as casas seguras reveladas
   | { ok: false; reason: "not_playing" | "invalid_cell" | "already_revealed" };
 
-/** Revela uma casa do tabuleiro. Bomba = estoura a rodada; multiplicador = soma aos Ganhos. */
+/** Revela uma casa do tabuleiro. Bomba = estoura a rodada (a menos que tenha vida extra); multiplicador = soma aos Ganhos; anjo = ganha uma vida extra. */
 export function revelarCasaMines(userId: string, index: number): RevelarMinesResult {
   const room = getMinesRoom(userId);
   if (room.phase !== "jogando") return { ok: false, reason: "not_playing" };
@@ -1622,8 +1674,20 @@ export function revelarCasaMines(userId: string, index: number): RevelarMinesRes
 
   cell.state = "revelada";
 
+  if (cell.type === "anjo") {
+    room.extraLife = true;
+    saveData();
+    return { ok: true, outcome: "anjo", totalMultiplier: room.totalMultiplier };
+  }
+
   if (cell.type === "bomba") {
+    if (room.extraLife) {
+      room.extraLife = false;
+      saveData();
+      return { ok: true, outcome: "bomba_protegida", totalMultiplier: room.totalMultiplier };
+    }
     room.phase = "estourou";
+    saveData();
     return { ok: true, outcome: "bomba" };
   }
 

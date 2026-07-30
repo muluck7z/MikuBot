@@ -12,7 +12,8 @@ import { renderCassinoHome, renderRoleta, renderRoletaSpinning, renderAviator, r
 import {
   depositarCassino,
   configurarRodada,
-  girarRoleta,
+  prepararGiroRoleta,
+  resolverGiroRoleta,
   sacarCassino,
   sairCassino,
   markRulesSeen,
@@ -38,14 +39,18 @@ function fmt(n: number): string {
 // fila no rate limit do Discord.
 
 const ROLETA_COR_TICKS  = 8; // 8 s alternando preto/branco
-const ROLETA_PREVIEW_QTD = 4; // quantidade de números possíveis mostrados na prévia
+const ROLETA_PREVIEW_SWITCHES = 8; // quantas vezes o número candidato troca (2 voltas nos 4 candidatos)
+const ROLETA_PREVIEW_INTERVAL_MS = 2000; // troca de candidato a cada 2s
 const ROLETA_SUSPENSE_TICKS = 3; // 3 s com "?" antes do resultado
 
 interface RoletaSpinState {
   phase: 1 | 2 | 3;
   tick: number;
+  apostaCor: RoletaCor;
+  apostaNumero: number;
   resultCor: RoletaCor;
-  previewNumbers: number[]; // os números possíveis exibidos na fase 2
+  previewNumbers: number[]; // os 4 números candidatos — o resultado final sempre sai daqui
+  betAmount: number;
   userId: string;
 }
 
@@ -53,17 +58,24 @@ const rouletteMessages = new Map<string, Message>();
 const rouletteStates   = new Map<string, RoletaSpinState>();
 const rouletteEditBusy = new Map<string, boolean>(); // guard: edit anterior ainda em andamento
 
-function randomRoletaNumero(): number {
-  return Math.floor(Math.random() * ROLETA_NUMEROS) + 1;
-}
-
-function startRouletteSpin(userId: string, message: Message, resultCor: RoletaCor): void {
+function startRouletteSpin(
+  userId: string,
+  message: Message,
+  apostaCor: RoletaCor,
+  apostaNumero: number,
+  resultCor: RoletaCor,
+  previewNumbers: number[],
+  betAmount: number
+): void {
   rouletteMessages.set(userId, message);
   rouletteStates.set(userId, {
     phase: 1,
     tick: 0,
+    apostaCor,
+    apostaNumero,
     resultCor,
-    previewNumbers: Array.from({ length: ROLETA_PREVIEW_QTD }, randomRoletaNumero),
+    previewNumbers,
+    betAmount,
     userId,
   });
 
@@ -95,15 +107,17 @@ function startRouletteSpin(userId: string, message: Message, resultCor: RoletaCo
         setTimeout(tick, 1000);
 
       } else if (state.phase === 2) {
-        // ── Fase 2: cor fixada, mostra os 4 números possíveis, um por segundo ──
-        await msg.edit(renderRoletaSpinning(state.resultCor, state.previewNumbers[state.tick]) as never);
+        // ── Fase 2: cor fixada, os 4 candidatos vão trocando a cada 2s ───────
+        // Nenhum resultado foi sorteado ainda — só está mostrando as opções.
+        const candidato = state.previewNumbers[state.tick % state.previewNumbers.length]!;
+        await msg.edit(renderRoletaSpinning(state.resultCor, candidato) as never);
 
         state.tick++;
-        if (state.tick >= ROLETA_PREVIEW_QTD) {
+        if (state.tick >= ROLETA_PREVIEW_SWITCHES) {
           state.phase = 3;
           state.tick  = 0;
         }
-        setTimeout(tick, 1000);
+        setTimeout(tick, ROLETA_PREVIEW_INTERVAL_MS);
 
       } else {
         // ── Fase 3: suspense com "?" por alguns segundos antes do resultado ──
@@ -112,6 +126,12 @@ function startRouletteSpin(userId: string, message: Message, resultCor: RoletaCo
 
         if (state.tick >= ROLETA_SUSPENSE_TICKS) {
           // ── Resultado final ────────────────────────────────────────────────
+          // Só agora o número vencedor é sorteado — e sempre é um dos 4
+          // candidatos que já apareceram na tela durante a fase 2.
+          const resultNumero =
+            state.previewNumbers[Math.floor(Math.random() * state.previewNumbers.length)]!;
+          resolverGiroRoleta(userId, state.apostaCor, state.apostaNumero, state.resultCor, resultNumero, state.betAmount);
+
           rouletteMessages.delete(userId);
           rouletteStates.delete(userId);
           rouletteEditBusy.delete(userId);
@@ -128,11 +148,11 @@ function startRouletteSpin(userId: string, message: Message, resultCor: RoletaCo
       if (state.phase === 1 && state.tick >= ROLETA_COR_TICKS) {
         state.phase = 2;
         state.tick  = 0;
-      } else if (state.phase === 2 && state.tick >= ROLETA_PREVIEW_QTD) {
+      } else if (state.phase === 2 && state.tick >= ROLETA_PREVIEW_SWITCHES) {
         state.phase = 3;
         state.tick  = 0;
       }
-      setTimeout(tick, 1000);
+      setTimeout(tick, state.phase === 2 ? ROLETA_PREVIEW_INTERVAL_MS : 1000);
     } finally {
       rouletteEditBusy.delete(userId);
     }
@@ -210,7 +230,7 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto quer depositar na banca")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -224,7 +244,7 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto sacar da banca")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -238,7 +258,7 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto quer apostar nessa rodada")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(12)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -258,6 +278,10 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
 
     if (result.outcome === "bomba") {
       await toast(interaction, `Bomba! Você perdeu a aposta.`, false);
+    } else if (result.outcome === "anjo") {
+      await toast(interaction, `Você encontrou o anjo! Ganhou uma vida extra contra a próxima bomba.`, true);
+    } else if (result.outcome === "bomba_protegida") {
+      await toast(interaction, `O anjo te protegeu da bomba! Você pode continuar jogando.`, true);
     } else if (result.outcome === "limpou") {
       await toast(interaction, `Você limpou o tabuleiro e ganhou **${fmt(result.won)} fichas**!`, true);
     }
@@ -288,7 +312,7 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto quer depositar na banca")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -302,7 +326,7 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
       .setLabel("Quantas fichas por rodada")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 10");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -340,7 +364,7 @@ export async function handleCassinoButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto sacar da banca")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -441,8 +465,9 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
       return;
     }
 
-    // Calcula o resultado antes de animar (sem exibir ainda)
-    const result = girarRoleta(userId, cor, numero);
+    // Sorteia a cor final e os 4 números candidatos (o resultado real ainda
+    // não existe — só é decidido depois da animação, entre esses 4).
+    const result = prepararGiroRoleta(userId, cor, numero);
 
     if (!result.ok) {
       const reason =
@@ -460,7 +485,7 @@ export async function handleCassinoModal(interaction: ModalSubmitInteraction, ac
 
     // Dispara a animação em background — o handler retorna imediatamente,
     // a roleta continua rodando via setTimeout sem travar a fila de rate limit.
-    startRouletteSpin(userId, interaction.message as Message, result.resultCor);
+    startRouletteSpin(userId, interaction.message as Message, cor, numero, result.resultCor, result.previewNumbers, result.betAmount);
     return;
   }
 

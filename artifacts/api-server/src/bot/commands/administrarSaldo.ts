@@ -21,8 +21,6 @@ export const administrarSaldoCommand: BotCommand = {
       opt
         .setName("valor")
         .setDescription("Quantas fichas ajustar (use - para remover, ex: -500)")
-        .setMinValue(-1000000)
-        .setMaxValue(1000000)
         .setRequired(true)
     ),
 

@@ -119,7 +119,7 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
       .setLabel(`Quanto de empréstimo (máx: ${fmt(MAX_LOAN_AMOUNT)})`)
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 1000");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -132,7 +132,7 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
       .setLabel("Quantos invites converter")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 10");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -150,7 +150,7 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
       .setLabel("Quanto investir")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -193,7 +193,7 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
       .setLabel(`Quanto sacar (disponível: ${fmt(inv.balance)})`)
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder(`Ex: ${fmt(inv.balance)}`);
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -230,7 +230,7 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
       .setLabel("Quanto pagar")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder(String(loans[0]!.total));
     modal.addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(indexInput),
@@ -274,7 +274,7 @@ export async function handleBancoButton(interaction: ButtonInteraction, parts: s
       .setLabel("Quanto pagar")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder(String(owed[0]!.totalOwed));
     modal.addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(indexInput),

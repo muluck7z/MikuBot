@@ -240,7 +240,7 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto apostar nessa rodada")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 50");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -256,7 +256,7 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto depositar na banca do Aviator")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
@@ -272,7 +272,7 @@ export async function handleAviatorButton(interaction: ButtonInteraction, parts:
       .setLabel("Quanto sacar da banca pra carteira")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
-      .setMaxLength(10)
+      .setMaxLength(15)
       .setPlaceholder("Ex: 100");
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
     await interaction.showModal(modal);
