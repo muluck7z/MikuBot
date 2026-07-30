@@ -174,8 +174,8 @@ export const MINES_MAX_BOMBS = 18; // sorteado entre 0 e 18 bombas por rodada
 export const MINES_MULTIPLIER_VALUES = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
 export const MINES_JACKPOT_VALUE = 1000;
 export const MINES_JACKPOT_BIG_BET_THRESHOLD = 100_000_000; // acima disso, o 1000x fica mais provável
-export const MINES_JACKPOT_CHANCE_BIG_BET = 0.35; // 35% de chance do 1000x aparecer no tabuleiro (apostas grandes)
-export const MINES_JACKPOT_CHANCE_NORMAL = 0.12; // chance do 1000x aparecer em apostas normais (não é raro)
+export const MINES_JACKPOT_CHANCE_BIG_BET = 0.12; // 12% de chance do 1000x aparecer no tabuleiro (apostas acima de 100M)
+export const MINES_JACKPOT_CHANCE_NORMAL = 0.03; // 3% de chance do 1000x aparecer em apostas normais (abaixo de 100M)
 
 export type MinesCellType = "bomba" | "multiplicador" | "anjo";
 export type MinesCellState = "escondida" | "revelada";
@@ -1532,8 +1532,11 @@ export function getMinesRoom(userId: string): MinesRoomState {
 
 /** Sorteia um valor de multiplicador (não-1000x) — menores são bem mais comuns que os maiores. */
 function pickMinesMultiplier(): number {
-  // Pesos decrescentes: 5x é o mais comum, 100x é o mais raro (fora o 1000x).
-  const weights = [30, 25, 20, 16, 13, 11, 9, 7, 6, 5, 4];
+  // Pesos em 3 faixas de raridade sobre MINES_MULTIPLIER_VALUES = [5,10,20,30,40,50,60,70,80,90,100]:
+  //  - Comum      (5x, 10x):              peso total 100
+  //  - Raro       (20x, 30x, 40x, 50x):   peso total 50
+  //  - Extremamente raro (60x..100x):     peso total 15
+  const weights = [60, 40, 20, 15, 10, 5, 5, 4, 3, 2, 1];
   const totalWeight = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * totalWeight;
   for (let i = 0; i < MINES_MULTIPLIER_VALUES.length; i++) {
