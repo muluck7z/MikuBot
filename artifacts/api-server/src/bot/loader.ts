@@ -28,6 +28,7 @@ import { pixCommand } from "./commands/pix";
 import { administrarSaldoCommand } from "./commands/administrarSaldo";
 import { bloquearContasCommand } from "./commands/bloquearContas";
 import { syncInvitesCommand } from "./commands/syncinvites";
+import { robloxCommand } from "./commands/roblox";
 import { deployCommandsMerged, fetchRegisteredCommands } from "./deploy";
 import { logger } from "../lib/logger";
 
@@ -60,6 +61,7 @@ const allCommands: BotCommand[] = [
   administrarSaldoCommand,
   bloquearContasCommand,
   syncInvitesCommand,
+  robloxCommand,
 ];
 
 /** Nomes dos comandos que pertencem ao MikuBot. */
