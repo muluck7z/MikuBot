@@ -3,7 +3,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { type BotCommand } from "../index";
-import { infoContainer, errorContainer, v2Reply, COLORS } from "../v2/index";
+import { infoContainer, errorContainer, v2Reply } from "../v2/index";
 
 interface RobloxUserLookup {
   id: number;
@@ -164,7 +164,7 @@ export const robloxCommand: BotCommand = {
       ].join("\n"),
 
       [
-        `**RAP:** ${canViewInventory ? `${formatNumber(rap)} R$` : "Indisponível (inventário privado)"}`,
+        `**RAP:** ${canViewInventory ? `[${formatNumber(rap)} R$](https://www.rolimons.com/player/${id})` : "Indisponível (inventário privado)"}`,
         `**Inventário:** ${inventarioStatus}`,
       ].join("\n"),
 
@@ -197,7 +197,6 @@ export const robloxCommand: BotCommand = {
           title: `<:comunidade2:1531072981688914103> ROBLOX`,
           description: body,
           avatarUrl: avatar?.data?.[0]?.imageUrl ?? null,
-          accentColor: COLORS.primary,
         }),
       ])
     );
