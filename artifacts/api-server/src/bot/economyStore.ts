@@ -156,6 +156,7 @@ export interface AviatorRoomState {
   phaseStartedAt: number; // timestamp ms de início da fase atual
   crashPoint: number | null; // sorteado ao entrar em "flying", nunca exposto antes do crash
   crashHistory: number[]; // últimos AVIATOR_HISTORY_SIZE crashPoints, mais recente primeiro
+  forecastQueue: number[]; // crashPoints pré-sorteados pelo Oráculo — consumidos em ordem nas próximas rodadas
 }
 
 // Mapa em memória, uma sala por usuário (individual, como a roleta) — não precisa
@@ -205,6 +206,40 @@ export interface MinesUserState {
   betPerRound: number;
 }
 
+// ─── Loja de itens (sorte / oráculo) ───────────────────────────────────────────
+
+export type ItemType = "sorte2x" | "sorte5x" | "sorte10x" | "oraculo";
+export type SorteGame = "investimento" | "roleta" | "aviator" | "mines";
+
+export interface UserItems {
+  sorte2x: number;
+  sorte5x: number;
+  sorte10x: number;
+  oraculo: number;
+}
+
+/** Boost ativo de um usuário — consumido assim que é aplicado numa rodada/orçamento do jogo alvo. */
+export interface LuckBoost {
+  multiplier: 2 | 5 | 10;
+  game: SorteGame;
+  room?: InvestmentRoom; // só relevante quando game === "investimento"
+}
+
+export const LOJA_MIN_COST = 100_000_000; // 100M
+export const LOJA_MAX_COST = 1_000_000_000_000; // 1T
+export const LOJA_NOTHING_CHANCE = 0.5; // 50% de não vir nada
+// Pesos relativos entre os itens quando ALGO vem (não precisam somar 100 — são normalizados).
+const LOJA_ITEM_WEIGHTS: { item: ItemType; weight: number }[] = [
+  { item: "oraculo", weight: 10 },
+  { item: "sorte2x", weight: 35 },
+  { item: "sorte5x", weight: 25 },
+  { item: "sorte10x", weight: 15 },
+];
+
+function freshUserItems(): UserItems {
+  return { sorte2x: 0, sorte5x: 0, sorte10x: 0, oraculo: 0 };
+}
+
 // Mapa em memória, uma sala por usuário — rodadas são transitórias, mesma
 // lógica do Aviator (se o bot reiniciar no meio de uma partida, ela se perde).
 const minesRooms = new Map<string, MinesRoomState>();
@@ -222,6 +257,8 @@ export interface UserEconomy {
   unlockPaid: number; // quanto já foi pago desde o bloqueio, rumo ao desbloqueio
   lastTransferAt: number; // timestamp ms da última transferência enviada (usado para limitar envios enquanto há dívida ativa)
   economyBlocked: boolean; // bloqueado por um admin de interagir com todo o sistema de economia (banco, pix, cassino, negócios)
+  items: UserItems; // itens da /loja guardados no /inventario
+  luckBoost: LuckBoost | null; // boost de sorte ativado, aguardando a próxima rodada/orçamento do jogo alvo
 }
 
 type EconomyData = Record<string, UserEconomy>;
@@ -293,6 +330,8 @@ function freshUser(): UserEconomy {
     unlockPaid: 0,
     lastTransferAt: 0,
     economyBlocked: false,
+    items: freshUserItems(),
+    luckBoost: null,
   };
 }
 
@@ -328,6 +367,8 @@ export function getUser(userId: string): UserEconomy {
   if (u.cassino.seenRules === undefined) u.cassino.seenRules = false;
   if (!u.aviator) u.aviator = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND };
   if (!u.mines) u.mines = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND };
+  if (!u.items) u.items = freshUserItems();
+  if (u.luckBoost === undefined) u.luckBoost = null;
   return u;
 }
 
@@ -642,6 +683,25 @@ export function nextMarketTick(): number {
   return (Math.floor(Date.now() / INVEST_TICK_MS) + 1) * INVEST_TICK_MS;
 }
 
+export type OraculoInvestimentoResult =
+  | { ok: true; room: InvestmentRoom; forecast: number[] } // próximos 5 orçamentos (%) da sala
+  | { ok: false; reason: "no_item" | "invalid_room" };
+
+/** Consome 1 Oráculo e revela os próximos 5 orçamentos (variações %) de uma sala de investimento. */
+export function usarOraculoInvestimento(userId: string, room: number): OraculoInvestimentoResult {
+  const user = processAccount(userId);
+  if (!isValidRoom(room)) return { ok: false, reason: "invalid_room" };
+  if (user.items.oraculo < 1) return { ok: false, reason: "no_item" };
+
+  user.items.oraculo -= 1;
+  const currentBucket = Math.floor(Date.now() / INVEST_TICK_MS);
+  const forecast: number[] = [];
+  for (let i = 1; i <= 5; i++) forecast.push(marketPctForBucket(currentBucket + i, room));
+
+  saveData();
+  return { ok: true, room, forecast };
+}
+
 /** Simula as variações de mercado de uma sala que aconteceram desde a última atualização. */
 function updateInvestmentRoom(user: UserEconomy, room: number): void {
   const inv = getInvestment(user, room);
@@ -659,9 +719,21 @@ function updateInvestmentRoom(user: UserEconomy, room: number): void {
   }
 
   let lastPct = inv.lastChangePct;
+  let firstIteration = true;
   for (let b = lastBucket + 1; b <= lastBucket + ticks; b++) {
     lastPct = marketPctForBucket(b, room);
-    const delta = Math.round(inv.deposited * lastPct);
+    let delta = Math.round(inv.deposited * lastPct);
+
+    // Boost de sorte: amplia o ganho do próximo orçamento resolvido dessa sala
+    // (não reverte prejuízo — só potencializa quando o mercado sobe). Consumido aqui.
+    if (firstIteration && user.luckBoost?.game === "investimento" && user.luckBoost.room === room) {
+      if (lastPct > 0) {
+        delta = Math.round(inv.deposited * lastPct * user.luckBoost.multiplier);
+      }
+      user.luckBoost = null;
+    }
+    firstIteration = false;
+
     inv.balance += delta;
     inv.history.push(lastPct);
 
@@ -1167,14 +1239,43 @@ export function prepararGiroRoleta(userId: string, cor: RoletaCor, numero: numbe
     return { ok: false, reason: "no_bet" };
   }
 
-  const resultCor: RoletaCor = Math.random() < 0.5 ? "branco" : "preto";
-
-  // 4 números candidatos, sem repetição — o resultado final sai daqui.
-  const previewSet = new Set<number>();
-  while (previewSet.size < 4) {
-    previewSet.add(Math.floor(Math.random() * ROLETA_NUMEROS) + 1);
+  function rollAttempt(): { resultCor: RoletaCor; previewNumbers: number[] } {
+    const resultCor: RoletaCor = Math.random() < 0.5 ? "branco" : "preto";
+    const previewSet = new Set<number>();
+    while (previewSet.size < 4) {
+      previewSet.add(Math.floor(Math.random() * ROLETA_NUMEROS) + 1);
+    }
+    return { resultCor, previewNumbers: Array.from(previewSet) };
   }
-  const previewNumbers = Array.from(previewSet);
+
+  function scoreAttempt(a: { resultCor: RoletaCor; previewNumbers: number[] }): number {
+    const corHit = a.resultCor === cor;
+    const numHit = a.previewNumbers.includes(numero);
+    if (corHit && numHit) return 3;
+    if (corHit) return 2;
+    if (numHit) return 1;
+    return 0;
+  }
+
+  let attempt = rollAttempt();
+
+  // Boost de sorte: sorteia de novo N vezes e fica com a melhor tentativa para
+  // a aposta do usuário — não garante vitória, só aumenta as chances. Consumido aqui.
+  if (user.luckBoost?.game === "roleta") {
+    let bestScore = scoreAttempt(attempt);
+    for (let i = 1; i < user.luckBoost.multiplier; i++) {
+      const candidate = rollAttempt();
+      const score = scoreAttempt(candidate);
+      if (score > bestScore) {
+        attempt = candidate;
+        bestScore = score;
+      }
+    }
+    user.luckBoost = null;
+    saveData();
+  }
+
+  const { resultCor, previewNumbers } = attempt;
 
   return { ok: true, resultCor, previewNumbers, betAmount };
 }
@@ -1362,6 +1463,7 @@ function freshAviatorRoom(userId: string): AviatorRoomState {
     phaseStartedAt: Date.now(),
     crashPoint: null,
     crashHistory: [],
+    forecastQueue: [],
   };
 }
 
@@ -1372,6 +1474,7 @@ export function getAviatorRoom(userId: string): AviatorRoomState {
     room = freshAviatorRoom(userId);
     aviatorRooms.set(userId, room);
   }
+  if (!room.forecastQueue) room.forecastQueue = [];
   return room;
 }
 
@@ -1443,10 +1546,54 @@ export function apostarAviator(userId: string, amount: number): ApostarAviatorRe
 /** Sorteia o crashPoint da rodada e move a sala do usuário para a fase "flying". */
 export function iniciarVooAviator(userId: string): void {
   const room = getAviatorRoom(userId);
-  const r = Math.random();
-  room.crashPoint = Math.max(1, AVIATOR_CRASH_HOUSE_EDGE / (1 - r));
+  const user = getUser(userId);
+
+  let crashPoint: number;
+  if (room.forecastQueue.length > 0) {
+    // Rodada já prevista pelo Oráculo — usa exatamente o valor mostrado na previsão.
+    crashPoint = room.forecastQueue.shift()!;
+  } else if (user.luckBoost?.game === "aviator") {
+    // Boost de sorte: sorteia N vezes e fica com o maior crashPoint (mais tempo pra sacar).
+    let best = 0;
+    for (let i = 0; i < user.luckBoost.multiplier; i++) {
+      const r = Math.random();
+      const cp = Math.max(1, AVIATOR_CRASH_HOUSE_EDGE / (1 - r));
+      if (cp > best) best = cp;
+    }
+    crashPoint = best;
+    user.luckBoost = null;
+    saveData();
+  } else {
+    const r = Math.random();
+    crashPoint = Math.max(1, AVIATOR_CRASH_HOUSE_EDGE / (1 - r));
+  }
+
+  room.crashPoint = crashPoint;
   room.phase = "flying";
   room.phaseStartedAt = Date.now();
+}
+
+export type OraculoAviatorResult =
+  | { ok: true; forecast: number[] } // próximos 5 crashPoints, na ordem em que vão acontecer
+  | { ok: false; reason: "no_item" };
+
+/** Consome 1 Oráculo e pré-sorteia (e revela) os próximos 5 crashPoints do Aviator daquele usuário. */
+export function usarOraculoAviator(userId: string): OraculoAviatorResult {
+  const user = processAccount(userId);
+  if (user.items.oraculo < 1) return { ok: false, reason: "no_item" };
+
+  user.items.oraculo -= 1;
+  const room = getAviatorRoom(userId);
+  const forecast: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    const r = Math.random();
+    const cp = Math.max(1, AVIATOR_CRASH_HOUSE_EDGE / (1 - r));
+    room.forecastQueue.push(cp);
+    forecast.push(cp);
+  }
+
+  saveData();
+  return { ok: true, forecast };
 }
 
 /** Multiplicador atual da sala do usuário, calculado a partir do tempo real decorrido de voo. */
@@ -1547,7 +1694,7 @@ function pickMinesMultiplier(): number {
 }
 
 /** Monta um tabuleiro novo: sorteia nº de bombas, posições e multiplicadores. */
-function buildMinesBoard(betAmount: number): { board: MinesCell[]; bombCount: number } {
+function buildSingleMinesBoard(betAmount: number): { board: MinesCell[]; bombCount: number } {
   const bombCount = Math.floor(Math.random() * (MINES_MAX_BOMBS + 1)); // 0 a MINES_MAX_BOMBS
 
   const board: MinesCell[] = Array.from({ length: MINES_GRID_SIZE }, () => ({
@@ -1586,6 +1733,20 @@ function buildMinesBoard(betAmount: number): { board: MinesCell[]; bombCount: nu
   }
 
   return { board, bombCount };
+}
+
+/**
+ * Monta o tabuleiro. Com `rerolls` > 1 (boost de sorte ativo), gera vários
+ * tabuleiros e fica com o de menos bombas — não garante vitória, só aumenta
+ * as chances de um tabuleiro mais fácil.
+ */
+function buildMinesBoard(betAmount: number, rerolls: number = 1): { board: MinesCell[]; bombCount: number } {
+  let best = buildSingleMinesBoard(betAmount);
+  for (let i = 1; i < rerolls; i++) {
+    const candidate = buildSingleMinesBoard(betAmount);
+    if (candidate.bombCount < best.bombCount) best = candidate;
+  }
+  return best;
 }
 
 export type DepositarMinesResult =
@@ -1643,7 +1804,9 @@ export function iniciarMines(userId: string, amount: number): IniciarMinesResult
   user.mines.banca -= betAmount;
   user.mines.betPerRound = betAmount;
 
-  const { board, bombCount } = buildMinesBoard(betAmount);
+  const rerolls = user.luckBoost?.game === "mines" ? user.luckBoost.multiplier : 1;
+  const { board, bombCount } = buildMinesBoard(betAmount, rerolls);
+  if (rerolls > 1) user.luckBoost = null;
   room.phase = "jogando";
   room.board = board;
   room.bombCount = bombCount;
@@ -1738,4 +1901,68 @@ export function reiniciarRodadaMines(userId: string): void {
   room.betAmount = 0;
   room.totalMultiplier = 0;
   room.phaseStartedAt = Date.now();
+}
+
+// ─── Loja (/loja e /inventario) ─────────────────────────────────────────────────
+
+export type ComprarLojaResult =
+  | { ok: true; cost: number; item: ItemType | null; fichas: number }
+  | { ok: false; reason: "locked" | "insufficient" };
+
+/** Gira a loja: gasta um valor aleatório (100M–1T) da carteira e sorteia um item (50% de vir nada). */
+export function comprarLoja(userId: string): ComprarLojaResult {
+  const user = processAccount(userId);
+  if (user.bankLocked) return { ok: false, reason: "locked" };
+
+  const cost = Math.floor(LOJA_MIN_COST + Math.random() * (LOJA_MAX_COST - LOJA_MIN_COST));
+  if (user.fichas < cost) return { ok: false, reason: "insufficient" };
+  user.fichas -= cost;
+
+  let item: ItemType | null = null;
+  if (Math.random() >= LOJA_NOTHING_CHANCE) {
+    const totalWeight = LOJA_ITEM_WEIGHTS.reduce((sum, w) => sum + w.weight, 0);
+    let r = Math.random() * totalWeight;
+    for (const entry of LOJA_ITEM_WEIGHTS) {
+      if (r < entry.weight) {
+        item = entry.item;
+        break;
+      }
+      r -= entry.weight;
+    }
+    if (item) user.items[item] += 1;
+  }
+
+  saveData();
+  return { ok: true, cost, item, fichas: user.fichas };
+}
+
+export type AtivarSorteResult =
+  | { ok: true; multiplier: 2 | 5 | 10; game: SorteGame; room?: InvestmentRoom }
+  | { ok: false; reason: "no_item" | "already_active" | "invalid_room" };
+
+/**
+ * Ativa um item de sorte (2x/5x/10x) do inventário, direcionando-o a um dos 4 jogos.
+ * É consumido assim que surtir efeito na próxima rodada/orçamento daquele jogo.
+ */
+export function ativarSorte(
+  userId: string,
+  item: "sorte2x" | "sorte5x" | "sorte10x",
+  game: SorteGame,
+  room?: number
+): AtivarSorteResult {
+  const user = processAccount(userId);
+  if (user.items[item] < 1) return { ok: false, reason: "no_item" };
+  if (user.luckBoost) return { ok: false, reason: "already_active" };
+  if (game === "investimento" && !isValidRoom(room ?? -1)) return { ok: false, reason: "invalid_room" };
+
+  const multiplier = item === "sorte2x" ? 2 : item === "sorte5x" ? 5 : 10;
+  user.items[item] -= 1;
+  user.luckBoost = {
+    multiplier,
+    game,
+    ...(game === "investimento" ? { room: room as InvestmentRoom } : {}),
+  };
+
+  saveData();
+  return { ok: true, multiplier, game, room: user.luckBoost.room };
 }

@@ -26,6 +26,8 @@ import { buildSorteioComponents } from "../commands/sorteio";
 import { handleBancoButton } from "./banco";
 import { handleCassinoButton } from "./cassino";
 import { handleAviatorButton } from "./aviator";
+import { handleLojaButton } from "./loja";
+import { handleInventarioButton } from "./inventario";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 const RATING_CHANNEL_ID = "1512670969653887137";
@@ -313,6 +315,10 @@ export async function handleButton(interaction: ButtonInteraction) {
       await handleCassinoButton(interaction, parts);
     } else if (ns === "aviator") {
       await handleAviatorButton(interaction, parts);
+    } else if (ns === "loja") {
+      await handleLojaButton(interaction, parts);
+    } else if (ns === "inventario") {
+      await handleInventarioButton(interaction, parts);
     } else {
       logger.warn({ customId: interaction.customId }, "Unknown button interaction");
     }

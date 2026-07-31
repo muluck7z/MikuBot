@@ -16,6 +16,7 @@ import {
 } from "../v2/index";
 import { logger } from "../../lib/logger";
 import { ticketStore, ticketPanelConfig } from "../ticketStore";
+import { handleInventarioSelect } from "./inventario";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 const SUPPORT_ROLE_ID  = "1497801117940056125";
@@ -34,6 +35,8 @@ export async function handleSelectMenu(interaction: StringSelectMenuInteraction)
   try {
     if (ns === "ticket" && action === "type") {
       await handleTicketTypeSelect(interaction);
+    } else if (ns === "inventario" && action === "alvo") {
+      await handleInventarioSelect(interaction);
     } else {
       logger.warn({ customId: interaction.customId }, "Unknown select menu interaction");
     }
