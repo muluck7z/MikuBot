@@ -223,10 +223,14 @@ export interface LuckBoost {
   multiplier: 2 | 5 | 10;
   game: SorteGame;
   room?: InvestmentRoom; // só relevante quando game === "investimento"
+  expiresAt: number; // timestamp ms — passado isso, o boost expira mesmo sem ter sido usado
 }
 
-export const LOJA_MIN_COST = 100_000_000; // 100M
-export const LOJA_MAX_COST = 1_000_000_000_000; // 1T
+export const LUCK_BOOST_DURATION_MS = 5 * 60 * 1000; // 5 minutos
+
+export const LOJA_MIN_PCT = 0.05; // 5% da carteira
+export const LOJA_MAX_PCT = 0.2; // 20% da carteira
+export const LOJA_ABSOLUTE_MIN_COST = 10_000; // piso pra quem tem pouquíssimas fichas
 export const LOJA_NOTHING_CHANCE = 0.5; // 50% de não vir nada
 // Pesos relativos entre os itens quando ALGO vem (não precisam somar 100 — são normalizados).
 const LOJA_ITEM_WEIGHTS: { item: ItemType; weight: number }[] = [
@@ -369,6 +373,7 @@ export function getUser(userId: string): UserEconomy {
   if (!u.mines) u.mines = { banca: 0, betPerRound: DEFAULT_BET_PER_ROUND };
   if (!u.items) u.items = freshUserItems();
   if (u.luckBoost === undefined) u.luckBoost = null;
+  if (u.luckBoost && !u.luckBoost.expiresAt) u.luckBoost = null; // boost salvo antes da expiração existir
   return u;
 }
 
@@ -726,9 +731,10 @@ function updateInvestmentRoom(user: UserEconomy, room: number): void {
 
     // Boost de sorte: amplia o ganho do próximo orçamento resolvido dessa sala
     // (não reverte prejuízo — só potencializa quando o mercado sobe). Consumido aqui.
-    if (firstIteration && user.luckBoost?.game === "investimento" && user.luckBoost.room === room) {
+    const boost = getActiveLuckBoost(user);
+    if (firstIteration && boost?.game === "investimento" && boost.room === room) {
       if (lastPct > 0) {
-        delta = Math.round(inv.deposited * lastPct * user.luckBoost.multiplier);
+        delta = Math.round(inv.deposited * lastPct * boost.multiplier);
       }
       user.luckBoost = null;
     }
@@ -1261,9 +1267,10 @@ export function prepararGiroRoleta(userId: string, cor: RoletaCor, numero: numbe
 
   // Boost de sorte: sorteia de novo N vezes e fica com a melhor tentativa para
   // a aposta do usuário — não garante vitória, só aumenta as chances. Consumido aqui.
-  if (user.luckBoost?.game === "roleta") {
+  const roletaBoost = getActiveLuckBoost(user);
+  if (roletaBoost?.game === "roleta") {
     let bestScore = scoreAttempt(attempt);
-    for (let i = 1; i < user.luckBoost.multiplier; i++) {
+    for (let i = 1; i < roletaBoost.multiplier; i++) {
       const candidate = rollAttempt();
       const score = scoreAttempt(candidate);
       if (score > bestScore) {
@@ -1549,13 +1556,14 @@ export function iniciarVooAviator(userId: string): void {
   const user = getUser(userId);
 
   let crashPoint: number;
+  const aviatorBoost = getActiveLuckBoost(user);
   if (room.forecastQueue.length > 0) {
     // Rodada já prevista pelo Oráculo — usa exatamente o valor mostrado na previsão.
     crashPoint = room.forecastQueue.shift()!;
-  } else if (user.luckBoost?.game === "aviator") {
+  } else if (aviatorBoost?.game === "aviator") {
     // Boost de sorte: sorteia N vezes e fica com o maior crashPoint (mais tempo pra sacar).
     let best = 0;
-    for (let i = 0; i < user.luckBoost.multiplier; i++) {
+    for (let i = 0; i < aviatorBoost.multiplier; i++) {
       const r = Math.random();
       const cp = Math.max(1, AVIATOR_CRASH_HOUSE_EDGE / (1 - r));
       if (cp > best) best = cp;
@@ -1804,7 +1812,8 @@ export function iniciarMines(userId: string, amount: number): IniciarMinesResult
   user.mines.banca -= betAmount;
   user.mines.betPerRound = betAmount;
 
-  const rerolls = user.luckBoost?.game === "mines" ? user.luckBoost.multiplier : 1;
+  const minesBoost = getActiveLuckBoost(user);
+  const rerolls = minesBoost?.game === "mines" ? minesBoost.multiplier : 1;
   const { board, bombCount } = buildMinesBoard(betAmount, rerolls);
   if (rerolls > 1) user.luckBoost = null;
   room.phase = "jogando";
@@ -1905,16 +1914,42 @@ export function reiniciarRodadaMines(userId: string): void {
 
 // ─── Loja (/loja e /inventario) ─────────────────────────────────────────────────
 
+/** Se o boost ativo do usuário já passou dos 5 minutos, ele expira (e é limpo) na hora. */
+function getActiveLuckBoost(user: UserEconomy): LuckBoost | null {
+  if (!user.luckBoost) return null;
+  if (Date.now() >= user.luckBoost.expiresAt) {
+    user.luckBoost = null;
+    return null;
+  }
+  return user.luckBoost;
+}
+
+function computeLojaCost(fichas: number): number {
+  const pct = LOJA_MIN_PCT + Math.random() * (LOJA_MAX_PCT - LOJA_MIN_PCT);
+  return Math.max(LOJA_ABSOLUTE_MIN_COST, Math.floor(fichas * pct));
+}
+
+/** Sorteia (sem cobrar ainda) quanto vai custar o próximo giro — % da carteira atual do usuário. */
+export function rollLojaCost(userId: string): number {
+  const user = processAccount(userId);
+  return computeLojaCost(user.fichas);
+}
+
 export type ComprarLojaResult =
   | { ok: true; cost: number; item: ItemType | null; fichas: number }
   | { ok: false; reason: "locked" | "insufficient" };
 
-/** Gira a loja: gasta um valor aleatório (100M–1T) da carteira e sorteia um item (50% de vir nada). */
-export function comprarLoja(userId: string): ComprarLojaResult {
+/**
+ * Gira a loja: gasta um valor aleatório (5%–20% da carteira atual, com piso de 10 mil) e
+ * sorteia um item (50% de vir nada). Se `presetCost` for passado (giro cujo custo já foi
+ * mostrado antes), cobra exatamente esse valor em vez de sortear um novo.
+ */
+export function comprarLoja(userId: string, presetCost?: number): ComprarLojaResult {
   const user = processAccount(userId);
   if (user.bankLocked) return { ok: false, reason: "locked" };
+  if (user.fichas < LOJA_ABSOLUTE_MIN_COST) return { ok: false, reason: "insufficient" };
 
-  const cost = Math.floor(LOJA_MIN_COST + Math.random() * (LOJA_MAX_COST - LOJA_MIN_COST));
+  const cost = presetCost ?? computeLojaCost(user.fichas);
   if (user.fichas < cost) return { ok: false, reason: "insufficient" };
   user.fichas -= cost;
 
@@ -1942,7 +1977,8 @@ export type AtivarSorteResult =
 
 /**
  * Ativa um item de sorte (2x/5x/10x) do inventário, direcionando-o a um dos 4 jogos.
- * É consumido assim que surtir efeito na próxima rodada/orçamento daquele jogo.
+ * Vale por 5 minutos — some sozinho se não for usado a tempo, ou é consumido assim que
+ * surtir efeito na próxima rodada/orçamento daquele jogo.
  */
 export function ativarSorte(
   userId: string,
@@ -1952,7 +1988,7 @@ export function ativarSorte(
 ): AtivarSorteResult {
   const user = processAccount(userId);
   if (user.items[item] < 1) return { ok: false, reason: "no_item" };
-  if (user.luckBoost) return { ok: false, reason: "already_active" };
+  if (getActiveLuckBoost(user)) return { ok: false, reason: "already_active" };
   if (game === "investimento" && !isValidRoom(room ?? -1)) return { ok: false, reason: "invalid_room" };
 
   const multiplier = item === "sorte2x" ? 2 : item === "sorte5x" ? 5 : 10;
@@ -1960,9 +1996,43 @@ export function ativarSorte(
   user.luckBoost = {
     multiplier,
     game,
+    expiresAt: Date.now() + LUCK_BOOST_DURATION_MS,
     ...(game === "investimento" ? { room: room as InvestmentRoom } : {}),
   };
 
   saveData();
   return { ok: true, multiplier, game, room: user.luckBoost.room };
+}
+
+export interface ResetAllResult {
+  usersWiped: number;
+}
+
+/**
+ * Reset TOTAL da economia: apaga fichas, dívidas, empréstimos, investimentos,
+ * cassino (roleta/aviator/mines), itens e boosts de TODOS os usuários, e limpa
+ * as rodadas em andamento (aviator/mines) da memória. Irreversível.
+ */
+export function resetAllEconomy(): ResetAllResult {
+  const usersWiped = Object.keys(_data).length;
+  _data = {};
+  aviatorRooms.clear();
+  minesRooms.clear();
+  saveData();
+  return { usersWiped };
+}
+
+export interface ActiveBoostInfo {
+  multiplier: 2 | 5 | 10;
+  game: SorteGame;
+  room?: InvestmentRoom;
+  remainingMs: number;
+}
+
+/** Pro /inventario mostrar o boost ativo (se houver) e quanto tempo falta pra expirar. */
+export function getActiveBoostInfo(userId: string): ActiveBoostInfo | null {
+  const user = getUser(userId);
+  const boost = getActiveLuckBoost(user);
+  if (!boost) return null;
+  return { multiplier: boost.multiplier, game: boost.game, room: boost.room, remainingMs: boost.expiresAt - Date.now() };
 }

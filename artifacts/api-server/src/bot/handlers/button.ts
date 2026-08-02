@@ -28,6 +28,7 @@ import { handleCassinoButton } from "./cassino";
 import { handleAviatorButton } from "./aviator";
 import { handleLojaButton } from "./loja";
 import { handleInventarioButton } from "./inventario";
+import { handleResetButton } from "./reset";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
 const RATING_CHANNEL_ID = "1512670969653887137";
@@ -319,6 +320,8 @@ export async function handleButton(interaction: ButtonInteraction) {
       await handleLojaButton(interaction, parts);
     } else if (ns === "inventario") {
       await handleInventarioButton(interaction, parts);
+    } else if (ns === "reset") {
+      await handleResetButton(interaction, parts);
     } else {
       logger.warn({ customId: interaction.customId }, "Unknown button interaction");
     }

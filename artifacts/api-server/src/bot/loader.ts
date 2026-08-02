@@ -31,6 +31,7 @@ import { syncInvitesCommand } from "./commands/syncinvites";
 import { robloxCommand } from "./commands/roblox";
 import { lojaCommand } from "./commands/loja";
 import { inventarioCommand } from "./commands/inventario";
+import { resetCommand } from "./commands/reset";
 import { deployCommandsMerged, fetchRegisteredCommands } from "./deploy";
 import { logger } from "../lib/logger";
 
@@ -66,6 +67,7 @@ const allCommands: BotCommand[] = [
   robloxCommand,
   lojaCommand,
   inventarioCommand,
+  resetCommand,
 ];
 
 /** Nomes dos comandos que pertencem ao MikuBot. */

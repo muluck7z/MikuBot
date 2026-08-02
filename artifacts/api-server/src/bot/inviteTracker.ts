@@ -46,6 +46,17 @@ export interface InviteCredit {
 }
 
 /**
+ * Zera o "baseline" de usos conhecidos de todos os invites de todos os servidores.
+ * Depois disso, a próxima reconciliação (reinício do bot, entrada de membro, ou
+ * /sync-invites) trata TODOS os usos atuais como novos — refazendo a conversão
+ * de invites em fichas do zero. Usado pelo /reset.
+ */
+export function resetInviteTracking(): void {
+  _data = {};
+  saveData();
+}
+
+/**
  * Busca os invites atuais do servidor e compara com o último número de usos
  * conhecido (persistido em disco) de cada um. Credita ao criador do link a
  * diferença total (`uses atuais - uses conhecidos`) — não apenas 1 — o que
