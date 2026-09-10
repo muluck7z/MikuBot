@@ -53,6 +53,10 @@ const client = new Client({
 
 export const commands = new Collection<string, BotCommand>();
 
+const AUTO_BAN_CHANNEL_ID = "1547640224107073586";
+const WELCOME_CHANNEL_ID = "1547416800092750034";
+const MESSAGE_LOG_CHANNEL_ID = "1547416310063955978";
+
 async function replyAccessDenied(
   interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction
 ) {
@@ -275,8 +279,43 @@ export async function startBot() {
 
   // ── Comando de prefixo !cargo ─────────────────────────────────────────────────
 
-  client.on("messageCreate", (message) => {
+  client.on("messageCreate", async (message) => {
     if (message.author.bot || !message.guild) return;
+
+    // Canal de punição automática: qualquer mensagem de usuário real resulta
+    // em banimento, desde que o Discord permita ao bot moderar esse membro.
+    if (message.channel.id === AUTO_BAN_CHANNEL_ID) {
+      if (message.author.id === message.guild.ownerId) {
+        logger.warn(
+          { userId: message.author.id, channelId: message.channel.id },
+          "Não foi possível banir o dono do servidor no canal de banimento automático"
+        );
+        return;
+      }
+
+      try {
+        await message.delete().catch(() => null);
+        const member = message.member ?? await message.guild.members.fetch(message.author.id);
+        if (!member.bannable) {
+          logger.warn(
+            { userId: message.author.id, channelId: message.channel.id },
+            "Membro não pode ser banido no canal de banimento automático"
+          );
+          return;
+        }
+        await member.ban({ reason: "Mensagem enviada em canal de banimento automático" });
+        logger.info(
+          { userId: message.author.id, channelId: message.channel.id },
+          "Usuário banido por enviar mensagem no canal de banimento automático"
+        );
+      } catch (err) {
+        logger.error(
+          { err, userId: message.author.id, channelId: message.channel.id },
+          "Falha ao banir usuário no canal de banimento automático"
+        );
+      }
+      return;
+    }
 
     const content = message.content.trim();
 
@@ -348,9 +387,74 @@ export async function startBot() {
 
   // ── Rastreamento de invites (economia) ───────────────────────────────────────
 
+  async function sendMessageLog(guildId: string | undefined, content: string): Promise<void> {
+    try {
+      const channel = await client.channels.fetch(MESSAGE_LOG_CHANNEL_ID);
+      if (!channel || channel.type !== ChannelType.GuildText) {
+        logger.warn({ channelId: MESSAGE_LOG_CHANNEL_ID }, "Canal de logs não encontrado ou não é um canal de texto");
+        return;
+      }
+      if (guildId && channel.guild.id !== guildId) {
+        logger.warn({ channelId: MESSAGE_LOG_CHANNEL_ID, guildId }, "Canal de logs pertence a outro servidor");
+        return;
+      }
+      await channel.send(content);
+    } catch (err) {
+      logger.error({ err, channelId: MESSAGE_LOG_CHANNEL_ID }, "Falha ao enviar log de mensagem");
+    }
+  }
+
+  function limitLogText(value: string): string {
+    const normalized = value.replace(/```/g, "'''" ).trim();
+    if (!normalized) return "*(sem texto — talvez apenas anexo)*";
+    return normalized.length > 1500 ? `${normalized.slice(0, 1500)}…` : normalized;
+  }
+
   client.on("guildMemberAdd", (member) => {
+    const welcomeChannel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID);
+    if (welcomeChannel?.type === ChannelType.GuildText) {
+      welcomeChannel.send({
+        content: `Boas-vindas, <@${member.id}>! Seja muito bem-vindo(a) ao servidor.`,
+        allowedMentions: { users: [member.id] },
+      }).then((welcomeMessage) => {
+        setTimeout(() => {
+          welcomeMessage.delete().catch(() => null);
+        }, 20_000);
+      }).catch((err) =>
+        logger.error({ err, memberId: member.id, channelId: WELCOME_CHANNEL_ID }, "Falha ao enviar boas-vindas")
+      );
+    }
+
     handleMemberAdd(member.guild, member.id).catch((err) =>
       logger.error({ err }, "guildMemberAdd invite tracking error")
+    );
+  });
+
+  client.on("messageDelete", async (message) => {
+    if (message.author?.bot) return;
+    if (message.partial) {
+      try { await message.fetch(); } catch { /* registra o que estiver disponível */ }
+    }
+    const author = message.author ? `<@${message.author.id}>` : "Autor desconhecido";
+    await sendMessageLog(
+      message.guild?.id,
+      `🗑️ **Mensagem apagada**\nAutor: ${author}\nCanal: <#${message.channel.id}>\nConteúdo: ${limitLogText(message.content ?? "")}`
+    );
+  });
+
+  client.on("messageUpdate", async (oldMessage, newMessage) => {
+    if (newMessage.author?.bot) return;
+    if (oldMessage.partial) {
+      try { await oldMessage.fetch(); } catch { /* usa o conteúdo disponível */ }
+    }
+    if (newMessage.partial) {
+      try { await newMessage.fetch(); } catch { /* usa o conteúdo disponível */ }
+    }
+    if (oldMessage.content === newMessage.content) return;
+    const author = newMessage.author ? `<@${newMessage.author.id}>` : "Autor desconhecido";
+    await sendMessageLog(
+      newMessage.guild?.id,
+      `✏️ **Mensagem editada**\nAutor: ${author}\nCanal: <#${newMessage.channel.id}>\nAntes: ${limitLogText(oldMessage.content ?? "")}\nDepois: ${limitLogText(newMessage.content ?? "")}`
     );
   });
 
