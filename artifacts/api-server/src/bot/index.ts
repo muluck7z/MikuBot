@@ -25,7 +25,7 @@ import { handleSelectMenu } from "./handlers/selectMenu";
 import { handlePeerLoanButton } from "./handlers/peerLoan";
 import { hasStaffAccess } from "./guard";
 import { isEconomyBlocked } from "./economyStore";
-import { errorContainer } from "./v2/index";
+import { errorContainer, infoContainer, v2Reply } from "./v2/index";
 import { reactionRoleStore, makeKey, emojiKeyFromReaction } from "./reactionRoleStore";
 import { cargoSessions } from "./cargoSessionStore";
 import { handleCargoCommand, handleCargoSession } from "./handlers/cargo";
@@ -294,16 +294,21 @@ export async function startBot() {
       }
 
       try {
-        await message.delete().catch(() => null);
         const member = message.member ?? await message.guild.members.fetch(message.author.id);
         if (!member.bannable) {
           logger.warn(
             { userId: message.author.id, channelId: message.channel.id },
-            "Membro não pode ser banido no canal de banimento automático"
+            "Membro não pode ser banido; verifique Ban Members e a hierarquia de cargos"
           );
           return;
         }
-        await member.ban({ reason: "Mensagem enviada em canal de banimento automático" });
+        // Bane primeiro e só apaga depois: assim uma falha de permissão não
+        // faz a mensagem desaparecer sem que o usuário seja punido.
+        await message.guild.bans.create(message.author.id, {
+          reason: "Mensagem enviada em canal de banimento automático",
+          deleteMessageSeconds: 0,
+        });
+        await message.delete().catch(() => null);
         logger.info(
           { userId: message.author.id, channelId: message.channel.id },
           "Usuário banido por enviar mensagem no canal de banimento automático"
@@ -387,7 +392,10 @@ export async function startBot() {
 
   // ── Rastreamento de invites (economia) ───────────────────────────────────────
 
-  async function sendMessageLog(guildId: string | undefined, content: string): Promise<void> {
+  async function sendMessageLog(
+    guildId: string | undefined,
+    content: ReturnType<typeof v2Reply>
+  ): Promise<void> {
     try {
       const channel = await client.channels.fetch(MESSAGE_LOG_CHANNEL_ID);
       if (!channel || channel.type !== ChannelType.GuildText) {
@@ -398,7 +406,7 @@ export async function startBot() {
         logger.warn({ channelId: MESSAGE_LOG_CHANNEL_ID, guildId }, "Canal de logs pertence a outro servidor");
         return;
       }
-      await channel.send(content);
+      await channel.send(content as any);
     } catch (err) {
       logger.error({ err, channelId: MESSAGE_LOG_CHANNEL_ID }, "Falha ao enviar log de mensagem");
     }
@@ -436,9 +444,17 @@ export async function startBot() {
       try { await message.fetch(); } catch { /* registra o que estiver disponível */ }
     }
     const author = message.author ? `<@${message.author.id}>` : "Autor desconhecido";
+    const log = v2Reply([infoContainer({
+      title: "<:escudo:1530802103612608715>  **Mensagem apagada**",
+      description: [
+        `> <:ticket_user:1530817417842921492> Autor: ${author}`,
+        `> <:comunidade2:1531072981688914103> Canal: <#${message.channel.id}>`,
+        `> <:em:1531074006978138292> Conteúdo: ${limitLogText(message.content ?? "")}`,
+      ].join("\n"),
+    })]);
     await sendMessageLog(
       message.guild?.id,
-      `🗑️ **Mensagem apagada**\nAutor: ${author}\nCanal: <#${message.channel.id}>\nConteúdo: ${limitLogText(message.content ?? "")}`
+      log
     );
   });
 
@@ -452,9 +468,18 @@ export async function startBot() {
     }
     if (oldMessage.content === newMessage.content) return;
     const author = newMessage.author ? `<@${newMessage.author.id}>` : "Autor desconhecido";
+    const log = v2Reply([infoContainer({
+      title: "<:escudo:1530802103612608715>  **Mensagem editada**",
+      description: [
+        `> <:ticket_user:1530817417842921492> Autor: ${author}`,
+        `> <:comunidade2:1531072981688914103> Canal: <#${newMessage.channel.id}>`,
+        `> <:clock:1508157710422507663> Conteúdo antigo: ${limitLogText(oldMessage.content ?? "")}`,
+        `> <:em:1531074006978138292> Conteúdo atual: ${limitLogText(newMessage.content ?? "")}`,
+      ].join("\n"),
+    })]);
     await sendMessageLog(
       newMessage.guild?.id,
-      `✏️ **Mensagem editada**\nAutor: ${author}\nCanal: <#${newMessage.channel.id}>\nAntes: ${limitLogText(oldMessage.content ?? "")}\nDepois: ${limitLogText(newMessage.content ?? "")}`
+      log
     );
   });
 
