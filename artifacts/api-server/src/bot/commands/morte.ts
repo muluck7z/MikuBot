@@ -2,37 +2,35 @@ import { SlashCommandBuilder, type ChatInputCommandInteraction } from "discord.j
 import { type BotCommand } from "../index";
 import { infoContainer, v2Reply } from "../v2/index";
 
-const CAUSAS: string[] = [
-  // ── Leves ────────────────────────────────────────────────────────────────
+const MORTES_LEVES: string[] = [
+  // ── Sortudos: raros, mas possíveis ────────────────────────────────────────
   "morreu de velhice em paz, dormindo tranquilamente em casa",
-  "sucumbiu a uma gripe ignorada por semanas sem procurar médico",
-  "morreu de exaustão após décadas de trabalho sem descanso",
-  "parada cardíaca silenciosa durante uma caminhada no parque",
-  "morreu em sono após uma vida longa ao lado da família",
-  "faleceu de complicações renais que nunca foram tratadas a tempo",
-  "foi vencido(a) por um câncer descoberto tarde demais",
-  "morreu de pneumonia após passar frio sem se agasalhar",
-  "coração parou durante o sono sem nenhum aviso prévio",
-  "morreu de tristeza após perder alguém que amava muito",
+  "partiu dormindo, depois de uma vida longa e estranhamente tranquila",
+  "teve uma parada cardíaca silenciosa durante uma caminhada no parque",
+  "morreu em casa, cercado(a) pela família e sem perceber que era o fim",
+  "apagou durante o sono após uma vida inteira escapando do perigo por pura sorte",
+  "foi vencido(a) pela idade, em uma cama confortável e sem nenhuma reviravolta dramática",
+];
 
-  // ── Normais ───────────────────────────────────────────────────────────────
+const MORTES_NORMAIS: string[] = [
+  // ── Perigosas: sem sorte, sem glamour ─────────────────────────────────────
   "acidente de carro na madrugada em rodovia federal sem iluminação",
-  "afogamento em rio com correnteza forte durante tempestade",
-  "queda de moto a alta velocidade sem capacete na cabeça",
-  "infarto fulminante durante uma discussão acalorada",
-  "overdose acidental após misturar remédios errados",
-  "atropelado(a) por caminhão ao atravessar fora da faixa",
-  "queda do terceiro andar enquanto consertava o telhado sozinho(a)",
-  "morreu afogado(a) numa piscina sem ninguém por perto",
-  "choque elétrico ao mexer na fiação sem desligar o disjuntor",
-  "morreu em cirurgia de emergência após acidente de trabalho",
-  "intoxicação alimentar grave em viagem sem acesso a hospital",
-  "ataque de animal selvagem durante trilha sem guia",
-  "morreu baleado(a) em assalto que deu errado",
+  "afogamento em um rio de correnteza forte durante uma tempestade",
+  "queda de moto em alta velocidade numa estrada molhada",
+  "atropelado(a) ao atravessar a rua olhando para o celular pela última vez",
+  "queda do terceiro andar enquanto tentava consertar o telhado sozinho(a)",
+  "choque elétrico ao mexer em uma instalação antiga sem desligar o disjuntor",
+  "morreu em uma cirurgia de emergência depois de um acidente de trabalho",
+  "ataque de animal selvagem durante uma trilha em área proibida",
+  "ficou preso(a) em um elevador durante um incêndio no prédio",
+  "soterrado(a) após ignorar os avisos de deslizamento durante a chuva",
+  "atingido(a) por um raio enquanto fazia questão de ficar no ponto mais alto",
   "colisão frontal em ultrapassagem proibida numa curva fechada",
   "morreu afogado(a) ao cair de barco sem colete salva-vidas",
+];
 
-  // ── Brutais ───────────────────────────────────────────────────────────────
+const MORTES_BRUTAIS: string[] = [
+  // ── Pesadas: a grande maioria dos resultados ──────────────────────────────
   "esfaqueado(a) 23 vezes em uma briga de rua que começou por nada",
   "decapitado(a) em acidente industrial com máquina de corte pesada",
   "queimado(a) vivo(a) dentro de um veículo que pegou fogo após batida",
@@ -48,7 +46,24 @@ const CAUSAS: string[] = [
   "execução sumária por dívida que não conseguiu pagar a tempo",
   "morreu após ser arrastado(a) por enchente e bater contra estrutura de concreto",
   "corpo irreconhecível após explosão de carregamento de combustível",
+  "soterrado(a) sob os escombros de um prédio que desabou sem aviso",
+  "atingido(a) por uma explosão no momento exato em que abriu a porta errada",
+  "arrastado(a) para dentro de uma máquina industrial depois de ignorar o alarme",
+  "morreu preso(a) em um incêndio, quando a única saída desabou diante dos seus olhos",
+  "caiu de uma ponte durante uma perseguição e desapareceu na correnteza",
+  "atingido(a) por destroços de uma estrutura que caiu sobre a multidão",
+  "morreu em um acidente de trem tão violento que ninguém conseguiu reconhecer o vagão",
+  "encontrado(a) tarde demais depois de uma noite inteira perdido(a) em uma área inóspita",
 ];
+
+// A surpresa continua existindo, mas mortes leves são exceção:
+// 15% tranquilas, 30% perigosas e 55% realmente pesadas.
+function pickCausa(): string {
+  const chance = Math.random();
+  if (chance < 0.15) return pick(MORTES_LEVES);
+  if (chance < 0.45) return pick(MORTES_NORMAIS);
+  return pick(MORTES_BRUTAIS);
+}
 
 const MESES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -74,10 +89,10 @@ export const morteCommand: BotCommand = {
   async execute(interaction: ChatInputCommandInteraction) {
     const user = interaction.options.getUser("usuario", true);
 
-    const dia   = rand(1, 28);
-    const mes   = pick(MESES);
-    const ano   = rand(new Date().getFullYear() + 1, new Date().getFullYear() + 85);
-    const causa = pick(CAUSAS);
+    const dia = rand(1, 28);
+    const mes = pick(MESES);
+    const ano = rand(new Date().getFullYear() + 1, new Date().getFullYear() + 85);
+    const causa = pickCausa();
 
     await interaction.reply(
       v2Reply([
