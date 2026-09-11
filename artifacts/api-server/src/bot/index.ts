@@ -369,7 +369,7 @@ export async function startBot() {
 
     const message = reaction.message;
     if (action === "add") {
-      await handleTranslationReaction(message, reaction, user);
+      await handleTranslationReaction(message, reaction);
     }
     const guild = message.guild;
     if (!guild) return;
@@ -423,8 +423,7 @@ export async function startBot() {
 
   async function handleTranslationReaction(
     message: Message | import("discord.js").PartialMessage,
-    reaction: MessageReaction | PartialMessageReaction,
-    user: User | PartialUser
+    reaction: MessageReaction | PartialMessageReaction
   ): Promise<void> {
     const emoji = reaction.emoji.name ?? "";
     const target = emoji === FLAG_BRAZIL ? "pt" : emoji === FLAG_USA ? "en" : null;
@@ -438,7 +437,7 @@ export async function startBot() {
       if (!translated) return;
       const sourceLabel = source === "en" ? "Inglês" : "Português";
       const targetLabel = target === "en" ? "Inglês" : "Português";
-      await user.send(v2Reply([infoContainer({
+      const translationMessage = await message.channel.send(v2Reply([infoContainer({
         title: `🌐 Tradução ${sourceLabel} → ${targetLabel}`,
         description: [
           `**Mensagem original:**\n> ${limitLogText(message.content)}`,
@@ -447,9 +446,16 @@ export async function startBot() {
           "",
           `Canal original: <#${message.channel.id}>`,
         ].join("\n"),
-      })]));
+      })]) as any);
+
+      // Mantém textos maiores visíveis por um pouco mais de tempo, sem deixar
+      // traduções temporárias acumularem no canal.
+      const deleteAfterMs = Math.min(30_000, 10_000 + Math.floor(translated.length / 100) * 1_000);
+      setTimeout(() => {
+        translationMessage.delete().catch(() => null);
+      }, deleteAfterMs);
     } catch (err) {
-      logger.warn({ err, userId: user.id, messageId: message.id }, "Não foi possível enviar a tradução por DM");
+      logger.warn({ messageId: message.id }, "Não foi possível enviar a tradução no canal");
     }
   }
 
