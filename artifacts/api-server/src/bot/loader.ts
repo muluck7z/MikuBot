@@ -18,6 +18,7 @@ import { warnCommand } from "./commands/warn";
 import { emojiCommand } from "./commands/emoji";
 import { morteCommand } from "./commands/morte";
 import { futuroCommand } from "./commands/futuro";
+import { globalCommand } from "./commands/global";
 import { reactionRoleCommand } from "./commands/reactionrole";
 import { sorteioCommand } from "./commands/sorteio";
 import { restorecordSetupCommand } from "./commands/restorecord_setup";
@@ -54,6 +55,7 @@ const allCommands: BotCommand[] = [
   emojiCommand,
   morteCommand,
   futuroCommand,
+  globalCommand,
   reactionRoleCommand,
   sorteioCommand,
   restorecordSetupCommand,

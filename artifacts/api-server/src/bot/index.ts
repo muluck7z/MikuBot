@@ -13,7 +13,6 @@ import {
   type GuildMember,
   type MessageReaction,
   type PartialMessageReaction,
-  type Message,
   type User,
   type PartialUser,
   MessageFlags,
@@ -57,8 +56,6 @@ export const commands = new Collection<string, BotCommand>();
 const AUTO_BAN_CHANNEL_ID = "1547640224107073586";
 const WELCOME_CHANNEL_ID = "1547416800092750034";
 const MESSAGE_LOG_CHANNEL_ID = "1547416310063955978";
-const FLAG_BRAZIL = "🇧🇷";
-const FLAG_USA = "🇺🇸";
 
 async function replyAccessDenied(
   interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction
@@ -368,9 +365,6 @@ export async function startBot() {
     }
 
     const message = reaction.message;
-    if (action === "add") {
-      await handleTranslationReaction(message, reaction);
-    }
     const guild = message.guild;
     if (!guild) return;
 
@@ -397,88 +391,6 @@ export async function startBot() {
   }
 
   // ── Rastreamento de invites (economia) ───────────────────────────────────────
-
-  function detectLanguage(text: string): "pt" | "en" | null {
-    const normalized = text.toLocaleLowerCase("pt-BR");
-    const portuguese = /\b(que|não|uma|um|você|vocês|para|com|por|como|está|são|das|dos|isso|olá|obrigado|obrigada)\b/u;
-    const english = /\b(the|and|you|your|this|that|with|from|what|when|where|how|is|are|hello|thanks|please)\b/u;
-    const ptScore = (normalized.match(portuguese) ?? []).length;
-    const enScore = (normalized.match(english) ?? []).length;
-    if (ptScore === 0 && enScore === 0) return null;
-    return ptScore >= enScore ? "pt" : "en";
-  }
-
-  async function translateText(text: string, source: "pt" | "en", target: "pt" | "en"): Promise<string> {
-    const params = new URLSearchParams({ client: "gtx", sl: source, tl: target, dt: "t", q: text });
-    const response = await fetch(`https://translate.googleapis.com/translate_a/single?${params}`);
-    if (!response.ok) throw new Error(`Translation service returned ${response.status}`);
-    const data = (await response.json()) as unknown[];
-    const segments = Array.isArray(data[0]) ? data[0] : [];
-    return segments
-      .filter((segment): segment is unknown[] => Array.isArray(segment))
-      .map((segment) => typeof segment[0] === "string" ? segment[0] : "")
-      .join("")
-      .trim();
-  }
-
-  async function handleTranslationReaction(
-    message: Message | import("discord.js").PartialMessage,
-    reaction: MessageReaction | PartialMessageReaction
-  ): Promise<void> {
-    if (message.partial) {
-      try {
-        message = await message.fetch();
-      } catch (err) {
-        logger.warn({ err, messageId: message.id }, "Não foi possível carregar a mensagem para tradução");
-        return;
-      }
-    }
-
-    const emojiName = (reaction.emoji.name ?? "").toLocaleLowerCase("pt-BR").trim();
-    const emojiText = reaction.emoji.toString();
-    const isBrazilFlag = emojiName === FLAG_BRAZIL || emojiText === FLAG_BRAZIL ||
-      ["brasil", "brazil", "br"].includes(emojiName);
-    const isUsaFlag = emojiName === FLAG_USA || emojiText === FLAG_USA ||
-      ["eua", "usa", "unitedstates", "united_states", "us"].includes(emojiName);
-    const target = isBrazilFlag ? "pt" : isUsaFlag ? "en" : null;
-    if (!target || !message.content?.trim()) {
-      logger.debug({ emojiName, emojiText, messageId: message.id }, "Reação ignorada pela tradução");
-      return;
-    }
-
-    const source = detectLanguage(message.content);
-    if (!source || source === target) {
-      logger.info({ source, target, messageId: message.id }, "Idioma não compatível com a reação de tradução");
-      return;
-    }
-
-    try {
-      const translated = await translateText(message.content, source, target);
-      if (!translated) return;
-      const sourceLabel = source === "en" ? "Inglês" : "Português";
-      const targetLabel = target === "en" ? "Inglês" : "Português";
-      const translationMessage = await message.channel.send(v2Reply([infoContainer({
-        title: `🌐 Tradução ${sourceLabel} → ${targetLabel}`,
-        description: [
-          `**Mensagem original:**\n> ${limitLogText(message.content)}`,
-          "",
-          `**Tradução:**\n> ${limitLogText(translated)}`,
-          "",
-          `Canal original: <#${message.channel.id}>`,
-        ].join("\n"),
-      })]) as any);
-
-      // Mantém textos maiores visíveis por um pouco mais de tempo, sem deixar
-      // traduções temporárias acumularem no canal.
-      const deleteAfterMs = Math.min(30_000, 10_000 + Math.floor(translated.length / 100) * 1_000);
-      setTimeout(() => {
-        translationMessage.delete().catch(() => null);
-      }, deleteAfterMs);
-      logger.info({ source, target, messageId: message.id, translationMessageId: translationMessage.id }, "Tradução enviada no canal");
-    } catch (err) {
-      logger.error({ err, source, target, messageId: message.id }, "Não foi possível traduzir ou enviar a tradução no canal");
-    }
-  }
 
   async function sendMessageLog(
     guildId: string | undefined,
