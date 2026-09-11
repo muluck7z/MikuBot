@@ -425,12 +425,32 @@ export async function startBot() {
     message: Message | import("discord.js").PartialMessage,
     reaction: MessageReaction | PartialMessageReaction
   ): Promise<void> {
-    const emoji = reaction.emoji.name ?? "";
-    const target = emoji === FLAG_BRAZIL ? "pt" : emoji === FLAG_USA ? "en" : null;
-    if (!target || !message.content?.trim()) return;
+    if (message.partial) {
+      try {
+        message = await message.fetch();
+      } catch (err) {
+        logger.warn({ err, messageId: message.id }, "Não foi possível carregar a mensagem para tradução");
+        return;
+      }
+    }
+
+    const emojiName = (reaction.emoji.name ?? "").toLocaleLowerCase("pt-BR").trim();
+    const emojiText = reaction.emoji.toString();
+    const isBrazilFlag = emojiName === FLAG_BRAZIL || emojiText === FLAG_BRAZIL ||
+      ["brasil", "brazil", "br"].includes(emojiName);
+    const isUsaFlag = emojiName === FLAG_USA || emojiText === FLAG_USA ||
+      ["eua", "usa", "unitedstates", "united_states", "us"].includes(emojiName);
+    const target = isBrazilFlag ? "pt" : isUsaFlag ? "en" : null;
+    if (!target || !message.content?.trim()) {
+      logger.debug({ emojiName, emojiText, messageId: message.id }, "Reação ignorada pela tradução");
+      return;
+    }
 
     const source = detectLanguage(message.content);
-    if (!source || source === target) return;
+    if (!source || source === target) {
+      logger.info({ source, target, messageId: message.id }, "Idioma não compatível com a reação de tradução");
+      return;
+    }
 
     try {
       const translated = await translateText(message.content, source, target);
@@ -454,8 +474,9 @@ export async function startBot() {
       setTimeout(() => {
         translationMessage.delete().catch(() => null);
       }, deleteAfterMs);
+      logger.info({ source, target, messageId: message.id, translationMessageId: translationMessage.id }, "Tradução enviada no canal");
     } catch (err) {
-      logger.warn({ messageId: message.id }, "Não foi possível enviar a tradução no canal");
+      logger.error({ err, source, target, messageId: message.id }, "Não foi possível traduzir ou enviar a tradução no canal");
     }
   }
 
