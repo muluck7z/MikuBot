@@ -219,18 +219,28 @@ export async function startBot() {
       (interaction.isButton() || interaction.isModalSubmit()) &&
       (interaction.customId.startsWith("cassino:") || interaction.customId.startsWith("aviator:"));
 
+    // Interações da loja e do inventário são públicas — cada membro só acessa
+    // seus próprios itens e saldo pelo ID da interação.
+    const isLojaInteraction = interaction.isButton() && interaction.customId.startsWith("loja:");
+    const isInventarioInteraction =
+      (interaction.isButton() || interaction.isStringSelectMenu()) &&
+      interaction.customId.startsWith("inventario:");
+
     // Commands available to all members regardless of role
-    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "administrar-saldo", "bloquear-contas", "cassino", "negocios"]);
+    const PUBLIC_COMMANDS = new Set(["morte", "futuro", "banco", "pix", "administrar-saldo", "bloquear-contas", "cassino", "negocios", "loja", "inventario"]);
     const isPublicCommand =
       interaction.isChatInputCommand() && PUBLIC_COMMANDS.has(interaction.commandName);
 
     // Comandos e interações do sistema de economia — um usuário bloqueado por
     // /bloquear-contas não pode usar nenhum deles, mesmo sendo público.
-    const ECONOMY_COMMANDS = new Set(["banco", "pix", "cassino", "negocios"]);
+    const ECONOMY_COMMANDS = new Set(["banco", "pix", "cassino", "negocios", "loja", "inventario"]);
     const isEconomyCommand =
       interaction.isChatInputCommand() && ECONOMY_COMMANDS.has(interaction.commandName);
 
-    if ((isEconomyCommand || isBancoInteraction || isCassinoInteraction) && isEconomyBlocked(interaction.user.id)) {
+    if (
+      (isEconomyCommand || isBancoInteraction || isCassinoInteraction || isLojaInteraction || isInventarioInteraction) &&
+      isEconomyBlocked(interaction.user.id)
+    ) {
       await replyEconomyBlocked(
         interaction as ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction
       );
@@ -243,6 +253,8 @@ export async function startBot() {
       !isSorteioEntrar &&
       !isBancoInteraction &&
       !isCassinoInteraction &&
+      !isLojaInteraction &&
+      !isInventarioInteraction &&
       (!member || !hasStaffAccess(member))
     ) {
       await replyAccessDenied(
