@@ -92,6 +92,9 @@ export const morteCommand: BotCommand = {
     const dia = rand(1, 28);
     const mes = pick(MESES);
     const ano = rand(new Date().getFullYear() + 1, new Date().getFullYear() + 85);
+    const hora = rand(0, 23);
+    const minuto = rand(0, 59);
+    const segundo = rand(0, 59);
     const causa = pickCausa();
 
     await interaction.reply(
@@ -101,7 +104,7 @@ export const morteCommand: BotCommand = {
           description: [
             `Após uma análise profunda do universo e das suas más decisões de vida, chegamos a uma conclusão...`,
             "",
-            `<:35424whitetimer:1530809361612669128> **Data:** ${dia} de ${mes} de ${ano}`,
+            `<:35424whitetimer:1530809361612669128> **Data:** ${dia} de ${mes} de ${ano}, às ${String(hora).padStart(2, "0")}h ${String(minuto).padStart(2, "0")}min ${String(segundo).padStart(2, "0")}s`,
             `<:1729helldivers:1530809309535928382> **Causa:** ${causa}.`,
           ].join("\n"),
           avatarUrl: user.displayAvatarURL({ size: 256 }),
