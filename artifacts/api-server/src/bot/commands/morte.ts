@@ -82,12 +82,50 @@ export const morteCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("morte")
     .setDescription("Descubra quando e como alguém vai morrer")
-    .addUserOption((opt) =>
-      opt.setName("usuario").setDescription("Quem vai morrer?").setRequired(true)
+    .addStringOption((opt) =>
+      opt.setName("usuario").setDescription("Mencione quem vai morrer ou use @everyone").setRequired(true)
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
-    const user = interaction.options.getUser("usuario", true);
+    const alvo = interaction.options.getString("usuario", true).trim();
+    const everyone = /^@?everyone$/i.test(alvo);
+
+    if (everyone) {
+      if (!interaction.guild) {
+        await interaction.reply({ content: "O modo coletivo só funciona dentro de um servidor." });
+        return;
+      }
+
+      await interaction.reply({
+        content: [
+          "@everyone",
+          "",
+          "<:_i:1530809430810296476> **Previsão de Morte Coletiva**",
+          "Após uma análise profunda do universo e das más decisões deste servidor, chegamos a uma conclusão...",
+          "",
+          "**Todos que estão neste servidor vão morrer.**",
+          "A partir desse momento, este servidor inteiro será oficialmente um **cemitério online**.",
+          "",
+          "Que cada canal seja uma lápide e cada mensagem, uma lembrança dos que um dia estiveram aqui.",
+        ].join("\n"),
+        allowedMentions: { parse: ["everyone"] },
+      });
+      return;
+    }
+
+    const userId = alvo.match(/^<@!?([0-9]+)>$/)?.[1] ?? (alvo.match(/^[0-9]+$/) ? alvo : null);
+    if (!userId) {
+      await interaction.reply({ content: "Mencione um usuário válido ou use `@everyone`." });
+      return;
+    }
+
+    let user;
+    try {
+      user = await interaction.client.users.fetch(userId);
+    } catch {
+      await interaction.reply({ content: "Não consegui encontrar esse usuário. Mencione alguém do servidor." });
+      return;
+    }
 
     const dia = rand(1, 28);
     const mes = pick(MESES);
