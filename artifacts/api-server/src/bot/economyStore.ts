@@ -1948,6 +1948,9 @@ export function comprarLoja(userId: string, presetCost?: number): ComprarLojaRes
   if (user.fichas < LOJA_ABSOLUTE_MIN_COST) return { ok: false, reason: "insufficient" };
 
   const cost = presetCost ?? computeLojaCost(user.fichas);
+  if (!Number.isSafeInteger(cost) || cost < LOJA_ABSOLUTE_MIN_COST) {
+    return { ok: false, reason: "insufficient" };
+  }
   if (user.fichas < cost) return { ok: false, reason: "insufficient" };
   user.fichas -= cost;
 

@@ -1,6 +1,6 @@
 import { type ButtonInteraction } from "discord.js";
 import { infoContainer, errorContainer, secondaryButton, row, MessageFlags } from "../v2/index";
-import { comprarLoja, type ItemType } from "../economyStore";
+import { comprarLoja, rollLojaCost, type ItemType } from "../economyStore";
 
 const E = {
   ganhou: "<a:presente_storm:1530817591205957822>",
@@ -27,6 +27,14 @@ const ITEM_LABELS: Record<ItemType, string> = {
   oraculo: "Oráculo",
 };
 
+function nextSpin(userId: string, fichas: number) {
+  const cost = rollLojaCost(userId);
+  return {
+    cost,
+    row: row(secondaryButton(`loja:girar:${cost}`, "Girar novamente").setDisabled(fichas < cost)),
+  };
+}
+
 export async function handleLojaButton(interaction: ButtonInteraction, parts: string[]) {
   const [, action, presetCostRaw] = parts;
   if (action !== "girar") return;
@@ -46,7 +54,7 @@ export async function handleLojaButton(interaction: ButtonInteraction, parts: st
     return;
   }
 
-  const girarNovamente = row(secondaryButton("loja:girar", "Girar novamente"));
+  const next = nextSpin(interaction.user.id, result.fichas);
 
   if (result.item) {
     const description = [
@@ -56,10 +64,12 @@ export async function handleLojaButton(interaction: ButtonInteraction, parts: st
       "> Foi direto pro seu **/inventario.**",
       "",
       `${E.saldo} **Saldo restante:** ${fmt(result.fichas)}`,
+      "",
+      `Próximo giro: **${fmt(next.cost)}** fichas`,
     ].join("\n");
 
     await interaction.update(
-      screen(infoContainer({ title: `${E.ganhou} Você ganhou um Item!`, description }), girarNovamente) as never
+      screen(infoContainer({ title: `${E.ganhou} Você ganhou um Item!`, description }), next.row) as never
     );
     return;
   }
@@ -68,9 +78,11 @@ export async function handleLojaButton(interaction: ButtonInteraction, parts: st
     `> Você gastou **${fmt(result.cost)}** fichas e não veio nada dessa vez.`,
     "",
     `${E.saldo} **Saldo restante:** ${fmt(result.fichas)}`,
+    "",
+    `Próximo giro: **${fmt(next.cost)}** fichas`,
   ].join("\n");
 
   await interaction.update(
-    screen(infoContainer({ title: `${E.nada} Veio nada`, description }), girarNovamente) as never
+    screen(infoContainer({ title: `${E.nada} Veio nada`, description }), next.row) as never
   );
 }
