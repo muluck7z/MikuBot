@@ -3,7 +3,7 @@ import { type BotCommand } from "../index";
 import { infoContainer, errorContainer, dangerButton, secondaryButton, row, v2Reply, v2EphemeralReply } from "../v2/index";
 
 // Único usuário autorizado a usar este comando, independente de cargos.
-const AUTHORIZED_USER_ID = "1503230923980800150";
+const AUTHORIZED_USER_ID = "1545755252836409407";
 
 export const resetCommand: BotCommand = {
   data: new SlashCommandBuilder()

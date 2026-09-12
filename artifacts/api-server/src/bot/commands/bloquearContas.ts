@@ -4,7 +4,7 @@ import { successContainer, errorContainer, v2Reply, v2EphemeralReply } from "../
 import { setEconomyBlock, isEconomyBlocked } from "../economyStore";
 
 // Único usuário autorizado a usar este comando, independente de cargos.
-const AUTHORIZED_USER_ID = "1503230923980800150";
+const AUTHORIZED_USER_ID = "1545755252836409407";
 
 export const bloquearContasCommand: BotCommand = {
   data: new SlashCommandBuilder()

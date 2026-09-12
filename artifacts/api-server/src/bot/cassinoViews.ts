@@ -348,7 +348,7 @@ function renderMinesIdle(userId: string) {
   const mines = user.mines;
 
   const lines = [
-    `${E.announce} Mines é um jogo de sorte e precisão, acerte seu alvo e ganhe multiplicador ou perca tudo ao errar. Temos multiplicadores de 5 até 1000x.`,
+    `${E.announce} Mines é um jogo de sorte e precisão: acerte casas seguras para acumular multiplicadores ou perca a aposta ao encontrar uma bomba. Os multiplicadores vão de 1x a 100x e cada rodada tem de 6 a 18 bombas.`,
     "",
     `${E.em} Banca: ${fmt(mines.banca)} fichas`,
   ];

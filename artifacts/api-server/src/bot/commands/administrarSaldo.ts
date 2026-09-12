@@ -4,7 +4,7 @@ import { successContainer, errorContainer, v2Reply, v2EphemeralReply } from "../
 import { adjustFichas } from "../economyStore";
 
 // Único usuário autorizado a usar este comando, independente de cargos.
-const AUTHORIZED_USER_ID = "1503230923980800150";
+const AUTHORIZED_USER_ID = "1545755252836409407";
 
 function fmt(n: number): string {
   return Math.round(Math.abs(n)).toLocaleString("pt-BR");

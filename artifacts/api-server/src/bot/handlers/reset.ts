@@ -4,7 +4,7 @@ import { resetAllEconomy } from "../economyStore";
 import { resetInviteTracking, reconcileGuildInvites } from "../inviteTracker";
 
 // Único usuário autorizado a usar este comando, independente de cargos.
-const AUTHORIZED_USER_ID = "1503230923980800150";
+const AUTHORIZED_USER_ID = "1545755252836409407";
 
 export async function handleResetButton(interaction: ButtonInteraction, parts: string[]) {
   // customId: reset:<action>:_:<ownerId>

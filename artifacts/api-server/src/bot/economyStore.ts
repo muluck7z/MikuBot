@@ -171,12 +171,13 @@ const aviatorRooms = new Map<string, AviatorRoomState>();
 // componentes por mensagem, então grid + Sacar juntos não cabem em 25 se o
 // grid sozinho já usar as 25). Sobram 24 casas jogáveis.
 export const MINES_GRID_SIZE = 24;
-export const MINES_MAX_BOMBS = 18; // sorteado entre 0 e 18 bombas por rodada
-export const MINES_MULTIPLIER_VALUES = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
-export const MINES_JACKPOT_VALUE = 1000;
-export const MINES_JACKPOT_BIG_BET_THRESHOLD = 100_000_000; // acima disso, o 1000x fica mais provável
-export const MINES_JACKPOT_CHANCE_BIG_BET = 0.12; // 12% de chance do 1000x aparecer no tabuleiro (apostas acima de 100M)
-export const MINES_JACKPOT_CHANCE_NORMAL = 0.03; // 3% de chance do 1000x aparecer em apostas normais (abaixo de 100M)
+export const MINES_MIN_BOMBS = 6;
+export const MINES_MAX_BOMBS = 18; // sorteado entre 6 e 18 bombas por rodada
+export const MINES_MULTIPLIER_VALUES = [1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 50] as const;
+export const MINES_JACKPOT_VALUE = 100;
+export const MINES_JACKPOT_BIG_BET_THRESHOLD = 100_000_000; // acima disso, o 100x fica um pouco mais provável
+export const MINES_JACKPOT_CHANCE_BIG_BET = 0.01; // 1% de chance do 100x aparecer em apostas acima de 100M
+export const MINES_JACKPOT_CHANCE_NORMAL = 0.005; // 0,5% de chance do 100x aparecer em apostas normais
 
 export type MinesCellType = "bomba" | "multiplicador" | "anjo";
 export type MinesCellState = "escondida" | "revelada";
@@ -1685,13 +1686,10 @@ export function getMinesRoom(userId: string): MinesRoomState {
   return room;
 }
 
-/** Sorteia um valor de multiplicador (não-1000x) — menores são bem mais comuns que os maiores. */
+/** Sorteia um valor de multiplicador — menores são bem mais comuns que os maiores. */
 function pickMinesMultiplier(): number {
-  // Pesos em 3 faixas de raridade sobre MINES_MULTIPLIER_VALUES = [5,10,20,30,40,50,60,70,80,90,100]:
-  //  - Comum      (5x, 10x):              peso total 100
-  //  - Raro       (20x, 30x, 40x, 50x):   peso total 50
-  //  - Extremamente raro (60x..100x):     peso total 15
-  const weights = [60, 40, 20, 15, 10, 5, 5, 4, 3, 2, 1];
+  // Os multiplicadores baixos são muito mais comuns para reduzir a inflação da economia.
+  const weights = [70, 45, 25, 15, 10, 6, 4, 3, 2, 1, 1];
   const totalWeight = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * totalWeight;
   for (let i = 0; i < MINES_MULTIPLIER_VALUES.length; i++) {
@@ -1703,7 +1701,7 @@ function pickMinesMultiplier(): number {
 
 /** Monta um tabuleiro novo: sorteia nº de bombas, posições e multiplicadores. */
 function buildSingleMinesBoard(betAmount: number): { board: MinesCell[]; bombCount: number } {
-  const bombCount = Math.floor(Math.random() * (MINES_MAX_BOMBS + 1)); // 0 a MINES_MAX_BOMBS
+  const bombCount = MINES_MIN_BOMBS + Math.floor(Math.random() * (MINES_MAX_BOMBS - MINES_MIN_BOMBS + 1));
 
   const board: MinesCell[] = Array.from({ length: MINES_GRID_SIZE }, () => ({
     type: "multiplicador",
