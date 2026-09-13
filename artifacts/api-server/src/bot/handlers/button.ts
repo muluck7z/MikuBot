@@ -710,8 +710,15 @@ async function handleSorteioButton(
       const allowedRole = guild
         ? await guild.roles.fetch(entry.integrantesRoleId).catch(() => null)
         : null;
+      const interactionMember = interaction.member;
+      const interactionRoleIds = Array.isArray(interactionMember?.roles)
+        ? interactionMember.roles
+        : interactionMember
+          ? Array.from(interactionMember.roles.cache.keys())
+          : [];
       const hasRequiredRole =
         entry.integrantesRoleId === guild?.id ||
+        interactionRoleIds.includes(entry.integrantesRoleId) ||
         Boolean(member && allowedRole && member.roles.cache.has(allowedRole.id));
 
       logger.debug(
@@ -719,6 +726,7 @@ async function handleSorteioButton(
           userId: interaction.user.id,
           requiredRoleId: entry.integrantesRoleId,
           memberRoleIds: member ? Array.from(member.roles.cache.keys()) : [],
+          interactionRoleIds,
           roleFound: Boolean(allowedRole),
         },
         "Verificação de cargo do sorteio"
