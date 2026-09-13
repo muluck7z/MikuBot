@@ -19,8 +19,7 @@ import { ticketStore, ticketPanelConfig } from "../ticketStore";
 import { handleInventarioSelect } from "./inventario";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
-const SUPPORT_ROLE_ID  = "1497801117940056125";
-const EXTRA_ROLE_ID    = "1457907642633818204"; // cargo adicional com acesso a tickets
+const SUPPORT_ROLE_ID  = "1547419374783176704";
 
 const TICKET_TYPE_LABELS: Record<string, string> = {
   suporte: "Suporte Geral",
@@ -91,8 +90,7 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
 
   const botId = interaction.client.user.id;
   const supportRole = await guild.roles.fetch(SUPPORT_ROLE_ID);
-  const extraRole = await guild.roles.fetch(EXTRA_ROLE_ID);
-  if (!supportRole || !extraRole) {
+  if (!supportRole) {
     throw new Error("Os cargos de suporte do ticket não foram encontrados neste servidor.");
   }
 
@@ -125,16 +123,6 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
       },
       {
         id: supportRole,
-        allow: [
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.SendMessages,
-          PermissionFlagsBits.ReadMessageHistory,
-          PermissionFlagsBits.AttachFiles,
-          PermissionFlagsBits.ManageMessages,
-        ],
-      },
-      {
-        id: extraRole,
         allow: [
           PermissionFlagsBits.ViewChannel,
           PermissionFlagsBits.SendMessages,

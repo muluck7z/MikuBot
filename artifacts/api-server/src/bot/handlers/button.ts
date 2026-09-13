@@ -31,7 +31,7 @@ import { handleInventarioButton } from "./inventario";
 import { handleResetButton } from "./reset";
 
 const TICKET_EMOJI = "<:ticket:1508274275730063360>";
-const RATING_CHANNEL_ID = "1512670969653887137";
+const RATING_CHANNEL_ID = "1548691389448200272";
 const LOG_CHANNEL_ID    = "1512670984572764303";
 const MID_RATING_CHANNEL_ID = "1522014597123539044";
 
@@ -528,7 +528,7 @@ async function handleTicketButton(
 
     const isMid = channel.name.startsWith("mid-");
     const MID_STAFF_ROLE = "1522025707780440094";
-    const TICKET_STAFF_ROLES = ["1497801117940056125", "1457907642633818204"];
+    const TICKET_STAFF_ROLES = ["1547419374783176704"];
 
     const member = await guild.members.fetch(interaction.user.id).catch(() => null);
 
