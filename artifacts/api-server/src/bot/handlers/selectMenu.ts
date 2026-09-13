@@ -90,6 +90,11 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
   }
 
   const botId = interaction.client.user.id;
+  const supportRole = await guild.roles.fetch(SUPPORT_ROLE_ID);
+  const extraRole = await guild.roles.fetch(EXTRA_ROLE_ID);
+  if (!supportRole || !extraRole) {
+    throw new Error("Os cargos de suporte do ticket não foram encontrados neste servidor.");
+  }
 
   const channel = await guild.channels.create({
     name: ticketName,
@@ -119,7 +124,7 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
         ],
       },
       {
-        id: SUPPORT_ROLE_ID,
+        id: supportRole,
         allow: [
           PermissionFlagsBits.ViewChannel,
           PermissionFlagsBits.SendMessages,
@@ -129,7 +134,7 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
         ],
       },
       {
-        id: EXTRA_ROLE_ID,
+        id: extraRole,
         allow: [
           PermissionFlagsBits.ViewChannel,
           PermissionFlagsBits.SendMessages,
@@ -160,7 +165,7 @@ async function handleTicketTypeSelect(interaction: StringSelectMenuInteraction) 
   // Mention enviada separadamente — conteúdo de texto não pode ser misturado com IS_COMPONENTS_V2
   await (channel as TextChannel).send({
     content: `${interaction.user} | <@&${SUPPORT_ROLE_ID}>`,
-    allowedMentions: { users: [interaction.user.id], roles: [SUPPORT_ROLE_ID] },
+    allowedMentions: { parse: ["users", "roles"] },
   });
 
   await (channel as TextChannel).send({

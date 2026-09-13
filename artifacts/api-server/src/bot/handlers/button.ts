@@ -194,6 +194,10 @@ async function handleOpenMid(interaction: ButtonInteraction) {
 
   const MID_ROLES = ["1522025707780440094", "1457907642633818204"];
   const botId = interaction.client.user.id;
+  const midRoles = await Promise.all(MID_ROLES.map((roleId) => guild.roles.fetch(roleId)));
+  if (midRoles.some((role) => !role)) {
+    throw new Error("Os cargos de MID do ticket não foram encontrados neste servidor.");
+  }
 
   const channel = await guild.channels.create({
     name: ticketName,
@@ -222,8 +226,8 @@ async function handleOpenMid(interaction: ButtonInteraction) {
           PermissionFlagsBits.AttachFiles,
         ],
       },
-      ...MID_ROLES.map(roleId => ({
-        id: roleId,
+      ...midRoles.map(role => ({
+        id: role!,
         allow: [
           PermissionFlagsBits.ViewChannel,
           PermissionFlagsBits.SendMessages,
@@ -258,7 +262,7 @@ async function handleOpenMid(interaction: ButtonInteraction) {
 
   await (channel as TextChannel).send({
     content: `${interaction.user} | <@&${MID_ROLES[0]}> | <@&${MID_ROLES[1]}> O atendimento arca em respeito com os termos`,
-    allowedMentions: { users: [interaction.user.id], roles: MID_ROLES },
+    allowedMentions: { parse: ["users", "roles"] },
   });
 
   await (channel as TextChannel).send({
