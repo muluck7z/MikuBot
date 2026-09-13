@@ -698,6 +698,18 @@ async function handleSorteioButton(
       return;
     }
 
+    if (entry.integrantesRoleId) {
+      const member = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
+      if (!member?.roles.cache.has(entry.integrantesRoleId)) {
+        await interaction.reply(
+          v2EphemeralReply([
+            errorContainer(`Apenas membros com o cargo <@&${entry.integrantesRoleId}> podem participar deste sorteio.`),
+          ])
+        );
+        return;
+      }
+    }
+
     if (entry.participantes.has(interaction.user.id)) {
       await interaction.reply(v2EphemeralReply([errorContainer("Você já está participando deste sorteio! Boa sorte! 🍀")]));
       return;
@@ -718,10 +730,10 @@ async function handleSorteioButton(
 
     await interaction.reply(
       v2EphemeralReply([
-        successContainer(
-          "Você entrou no sorteio!",
-          `Boa sorte! 🍀\n**Prêmio:** ${entry.premio}\n**Participantes:** ${entry.participantes.size}`
-        ),
+        infoContainer({
+          title: "<:frog_fingerguns:1548117159333330954> Você entrou no sorteio!",
+          description: "Boa Sorte! 🍀",
+        }),
       ])
     );
 

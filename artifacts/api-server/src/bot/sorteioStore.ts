@@ -4,6 +4,8 @@ export interface SorteioEntry {
   messageId: string;
   guildId: string;
   numGanhadores: number;
+  imagemUrl?: string;
+  integrantesRoleId?: string;
   endsAt: number;
   participantes: Set<string>;
   criadorId: string;

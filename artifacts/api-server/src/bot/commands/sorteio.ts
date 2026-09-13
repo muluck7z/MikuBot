@@ -8,6 +8,8 @@ import {
   ActionRowBuilder,
   ContainerBuilder,
   TextDisplayBuilder,
+  SectionBuilder,
+  ThumbnailBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
   MessageFlags,
@@ -15,7 +17,7 @@ import {
   ChannelType,
 } from "discord.js";
 import { type BotCommand } from "../index";
-import { infoContainer, v2Reply, v2EphemeralReply, errorContainer, successContainer, COLORS } from "../v2/index";
+import { infoContainer, v2Reply, v2EphemeralReply, errorContainer, successContainer } from "../v2/index";
 import {
   sorteioStore,
   sorteioByChannel,
@@ -39,38 +41,44 @@ export function buildSorteioComponents(
   if (encerrado && vencedores !== undefined) {
     if (vencedores.length === 0) {
       bodyLines = [
-        `🏆 **Prêmio:** ${entry.premio}`,
-        `👥 **Ganhadores:** ${entry.numGanhadores}`,
-        `🎟️ **Participantes:** ${count}`,
+        `> **Prêmio:** ${entry.premio}`,
+        `> **Ganhadores:** ${entry.numGanhadores}`,
+        `> **Participantes:** ${count}`,
         "",
-        "❌ Nenhum participante. O sorteio foi encerrado sem vencedor.",
+        "<:frog_cry:1548679867548311583> Sorteio encerrado sem participantes.",
       ];
     } else {
       bodyLines = [
-        `🏆 **Prêmio:** ${entry.premio}`,
-        `👥 **Ganhadores:** ${entry.numGanhadores}`,
-        `🎟️ **Participantes:** ${count}`,
+        `> **Prêmio:** ${entry.premio}`,
+        `> **Ganhadores:** ${entry.numGanhadores}`,
+        `> **Participantes:** ${count}`,
         "",
-        `🥳 **${vencedores.length === 1 ? "Vencedor" : "Vencedores"}:**`,
+        `<:frog_fingerguns:1548117159333330954> **${vencedores.length === 1 ? "Vencedor" : "Vencedores"}:**`,
         vencedores.map((id) => `<@${id}>`).join("\n"),
       ];
     }
   } else {
     bodyLines = [
-      `🏆 **Prêmio:** ${entry.premio}`,
-      `👥 **Ganhadores:** ${entry.numGanhadores}`,
-      `⏰ **Termina:** <t:${endTs}:R>`,
-      `🎟️ **Participantes:** ${count}`,
+      `> **Prêmio:** ${entry.premio}`,
+      `> **Ganhadores:** ${entry.numGanhadores}`,
+      `> **Termina:** <t:${endTs}:R>`,
+      `> **Participantes:** ${count}`,
       "",
       "Clique no botão abaixo para participar!",
     ];
   }
 
+  const title = encerrado
+    ? "# <:002:1548114100326764664> Sorteio - Encerrado"
+    : "# <:002:1548114100326764664> SORTEIO";
+  const titleSection = new SectionBuilder().addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(title)
+  );
+  if (entry.imagemUrl) {
+    titleSection.setThumbnailAccessory(new ThumbnailBuilder().setURL(entry.imagemUrl));
+  }
   const container = new ContainerBuilder()
-    .setAccentColor(encerrado ? COLORS.danger : COLORS.warning)
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`# 🎉 Sorteio${encerrado ? " — Encerrado" : ""}`)
-    )
+    .addSectionComponents(titleSection)
     .addSeparatorComponents(
       new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
     )
@@ -125,14 +133,8 @@ export async function encerrarSorteio(
         allowed_mentions: { users: vencedores },
         components: [
           infoContainer({
-            title: "🎊 Temos vencedor(es)!",
-            description: [
-              `**Prêmio:** ${entry.premio}`,
-              "",
-              `**${vencedores.length === 1 ? "Vencedor" : "Vencedores"}:** ${mencoes}`,
-              "",
-              "Parabéns! Entre em contato com a equipe para resgatar seu prêmio. 🎁",
-            ].join("\n"),
+            title: "<:frog_fingerguns:1548117159333330954> Vencedor:",
+            description: mencoes,
           }).toJSON(),
         ],
         flags: MessageFlags.IsComponentsV2,
@@ -143,8 +145,8 @@ export async function encerrarSorteio(
       body: {
         components: [
           infoContainer({
-            title: "😔 Sorteio Encerrado",
-            description: `O sorteio do prêmio **${entry.premio}** foi encerrado sem participantes.`,
+            title: "<:frog_cry:1548679867548311583> Sorteio Encerrado",
+            description: `O sorteio do prêmio ${entry.premio} foi encerrado sem participantes`,
           }).toJSON(),
         ],
         flags: MessageFlags.IsComponentsV2,
@@ -205,6 +207,18 @@ export const sorteioCommand: BotCommand = {
             .setRequired(true)
             .addChannelTypes(ChannelType.GuildText)
         )
+        .addStringOption((opt) =>
+          opt
+            .setName("url_imagem")
+            .setDescription("URL da imagem exibida como thumbnail")
+            .setRequired(false)
+        )
+        .addRoleOption((opt) =>
+          opt
+            .setName("integrantes")
+            .setDescription("Cargo cujos membros poderão participar")
+            .setRequired(false)
+        )
     )
     .addSubcommand((sub) =>
       sub
@@ -243,6 +257,8 @@ export const sorteioCommand: BotCommand = {
       const unidade  = interaction.options.getString("unidade", true);
       const numGanhadores = interaction.options.getInteger("ganhadores", true);
       const canal    = interaction.options.getChannel("canal", true) as TextChannel;
+      const imagemUrl = interaction.options.getString("url_imagem")?.trim() || undefined;
+      const integrantesRole = interaction.options.getRole("integrantes");
 
       // Verificar se já existe sorteio ativo naquele canal
       if (sorteioByChannel.has(canal.id)) {
@@ -264,6 +280,8 @@ export const sorteioCommand: BotCommand = {
         messageId: "",
         guildId: guild.id,
         numGanhadores,
+        imagemUrl,
+        integrantesRoleId: integrantesRole?.id,
         endsAt,
         participantes: new Set(),
         criadorId: interaction.user.id,
