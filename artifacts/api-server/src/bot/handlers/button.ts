@@ -703,8 +703,28 @@ async function handleSorteioButton(
     }
 
     if (entry.integrantesRoleId) {
-      const member = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
-      if (!member?.roles.cache.has(entry.integrantesRoleId)) {
+      const guild = interaction.guild;
+      const member = guild
+        ? await guild.members.fetch({ user: interaction.user.id, force: true }).catch(() => null)
+        : null;
+      const allowedRole = guild
+        ? await guild.roles.fetch(entry.integrantesRoleId).catch(() => null)
+        : null;
+      const hasRequiredRole =
+        entry.integrantesRoleId === guild?.id ||
+        Boolean(member && allowedRole && member.roles.cache.has(allowedRole.id));
+
+      logger.debug(
+        {
+          userId: interaction.user.id,
+          requiredRoleId: entry.integrantesRoleId,
+          memberRoleIds: member ? Array.from(member.roles.cache.keys()) : [],
+          roleFound: Boolean(allowedRole),
+        },
+        "Verificação de cargo do sorteio"
+      );
+
+      if (!hasRequiredRole) {
         await interaction.reply(
           v2EphemeralReply([
             errorContainer(`Apenas membros com o cargo <@&${entry.integrantesRoleId}> podem participar deste sorteio.`),
