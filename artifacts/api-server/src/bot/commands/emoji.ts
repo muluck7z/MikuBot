@@ -23,6 +23,24 @@ function sanitizeEmojiName(name: string): string {
     .slice(0, 32);
 }
 
+function uniqueEmojiName(baseName: string, usedNames: Set<string>): string {
+  if (!usedNames.has(baseName)) {
+    usedNames.add(baseName);
+    return baseName;
+  }
+
+  for (let suffix = 2; suffix <= 9999; suffix++) {
+    const suffixText = `_${suffix}`;
+    const candidate = `${baseName.slice(0, 32 - suffixText.length)}${suffixText}`;
+    if (!usedNames.has(candidate)) {
+      usedNames.add(candidate);
+      return candidate;
+    }
+  }
+
+  throw new Error(`Não foi possível gerar um nome alternativo para ${baseName}.`);
+}
+
 function emojiLimit(premiumTier: number): number {
   return [50, 100, 150, 250][premiumTier] ?? 50;
 }
@@ -133,10 +151,12 @@ export const emojiCommand: BotCommand = {
         return;
       }
 
+      const usedNames = new Set(emojis.map((emoji) => emoji.name).filter((name): name is string => Boolean(name)));
       const prepared = inputs.map((input, index) => {
         const originalName = input.originalName;
         const nomeRaw = nomeCustom ?? (inputs.length > 1 ? originalName : originalName);
-        return { ...input, originalName, nome: sanitizeEmojiName(nomeRaw), index };
+        const baseName = sanitizeEmojiName(nomeRaw);
+        return { ...input, originalName, nome: baseName, index };
       });
       const invalid = prepared.find((item) => item.nome.length < 2);
       if (invalid) {
@@ -148,18 +168,8 @@ export const emojiCommand: BotCommand = {
         return;
       }
 
-      const duplicate = prepared.find((item) => emojis.some((emoji) => emoji.name === item.nome));
-      if (duplicate) {
-        await interaction.reply(
-          v2EphemeralReply([errorContainer(`Já existe um emoji chamado \`${duplicate.nome}\`. Use outro nome.`)])
-        );
-        return;
-      }
-
-      const duplicateNames = prepared.filter((item, index) => prepared.some((other, otherIndex) => otherIndex < index && other.nome === item.nome));
-      if (duplicateNames.length > 0) {
-        await interaction.reply(v2EphemeralReply([errorContainer("Os emojis do comando precisam ter nomes diferentes.")]));
-        return;
+      for (const item of prepared) {
+        item.nome = uniqueEmojiName(item.nome, usedNames);
       }
 
       await interaction.deferReply();
