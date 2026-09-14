@@ -13,7 +13,7 @@ import {
   COLORS,
 } from "../v2/index";
 
-const EMOJI_REGEX = /^<(a?):([a-zA-Z0-9_]{2,32}):(\d{17,20})>$/;
+const EMOJI_REGEX = /<(a?):([a-zA-Z0-9_]{2,32}):(\d{17,20})>/g;
 
 function sanitizeEmojiName(name: string): string {
   return name
@@ -25,6 +25,14 @@ function sanitizeEmojiName(name: string): string {
 
 function emojiLimit(premiumTier: number): number {
   return [50, 100, 150, 250][premiumTier] ?? 50;
+}
+
+function parseEmojiInput(input: string): Array<{ animated: boolean; originalName: string; emojiId: string }> {
+  return Array.from(input.matchAll(EMOJI_REGEX), (match) => ({
+    animated: match[1] === "a",
+    originalName: match[2]!,
+    emojiId: match[3]!,
+  }));
 }
 
 export const emojiCommand: BotCommand = {
@@ -73,20 +81,20 @@ export const emojiCommand: BotCommand = {
       const emojiInput = interaction.options.getString("emoji", true).trim();
       const nomeCustom = interaction.options.getString("nome");
 
-      const match = EMOJI_REGEX.exec(emojiInput);
-
-      if (!match) {
+      const inputs = parseEmojiInput(emojiInput);
+      if (inputs.length === 0 || inputs.length > 10) {
         await interaction.reply(
           v2EphemeralReply([
             errorContainer(
               [
-                "Isso não é um emoji customizado.",
+                inputs.length > 10
+                  ? "Você pode adicionar no máximo 10 emojis por comando."
+                  : "Nenhum emoji customizado válido foi encontrado.",
                 "",
                 "**Como usar:**",
                 "1. Clique no campo `emoji` do comando",
-                "2. Abra o teclado de emojis do Discord (ícone de smile ou tecla `:`)",
-                "3. Vá em **Seus Servidores** e escolha o emoji que quer copiar",
-                "4. Clique nele — ele será inserido automaticamente",
+                "2. Abra o teclado de emojis do Discord e escolha um ou mais emojis",
+                "3. Separe vários emojis por espaço (ex.: `:emoji1: :emoji2:`)",
                 "",
                 "⚠️ Emojis padrão como 😂 🎉 não podem ser copiados, apenas emojis customizados de servidores.",
               ].join("\n")
@@ -96,85 +104,88 @@ export const emojiCommand: BotCommand = {
         return;
       }
 
-      const isAnimated = match[1] === "a";
-      const originalName = match[2]!;
-      const emojiId = match[3]!;
-
-      const nomeRaw = nomeCustom ?? originalName;
-      const nome = sanitizeEmojiName(nomeRaw);
-
-      if (nome.length < 2) {
+      if (inputs.length > 1 && nomeCustom) {
         await interaction.reply(
           v2EphemeralReply([
-            errorContainer(
-              `O nome \`${nomeRaw}\` resultou em \`${nome || "(vazio)"}\` após sanitização.\nUse apenas letras, números e underscores (mín: 2 caracteres).`
-            ),
+            errorContainer("O campo `nome` só pode ser usado quando um único emoji é adicionado."),
           ])
         );
         return;
       }
 
+      const emojis = await guild.emojis.fetch();
       const limit = emojiLimit(guild.premiumTier);
-      if (guild.emojis.cache.size >= limit) {
+      const staticCount = emojis.filter((emoji) => !emoji.animated).size;
+      const animatedCount = emojis.filter((emoji) => emoji.animated).size;
+      const requestedStatic = inputs.filter((input) => !input.animated).length;
+      const requestedAnimated = inputs.filter((input) => input.animated).length;
+      if (staticCount + requestedStatic > limit || animatedCount + requestedAnimated > limit) {
         await interaction.reply(
           v2EphemeralReply([
             errorContainer(
-              `O servidor atingiu o limite de emojis (${guild.emojis.cache.size}/${limit}).\nAumente o nível de boost para adicionar mais.`
+              `Não há espaço para todos os emojis solicitados.\n` +
+              `Estáticos: ${staticCount + requestedStatic}/${limit}\n` +
+              `Animados: ${animatedCount + requestedAnimated}/${limit}\n\n` +
+              "Aumente o nível de boost para ampliar o limite."
             ),
           ])
         );
         return;
       }
 
-      const existing = guild.emojis.cache.find((e) => e.name === nome);
-      if (existing) {
-        const preview = existing.animated
-          ? `<a:${existing.name}:${existing.id}>`
-          : `<:${existing.name}:${existing.id}>`;
+      const prepared = inputs.map((input, index) => {
+        const originalName = input.originalName;
+        const nomeRaw = nomeCustom ?? (inputs.length > 1 ? originalName : originalName);
+        return { ...input, originalName, nome: sanitizeEmojiName(nomeRaw), index };
+      });
+      const invalid = prepared.find((item) => item.nome.length < 2);
+      if (invalid) {
         await interaction.reply(
           v2EphemeralReply([
-            errorContainer(
-              `Já existe um emoji chamado \`${nome}\` neste servidor: ${preview}\n\nUse o parâmetro \`nome\` para escolher um nome diferente.`
-            ),
+            errorContainer(`O nome \`${invalid.originalName}\` não é válido após sanitização. Use ao menos 2 caracteres.`),
           ])
         );
         return;
       }
 
-      const ext = isAnimated ? "gif" : "png";
-      const cdnUrl = `https://cdn.discordapp.com/emojis/${emojiId}.${ext}?size=128&quality=lossless`;
+      const duplicate = prepared.find((item) => emojis.some((emoji) => emoji.name === item.nome));
+      if (duplicate) {
+        await interaction.reply(
+          v2EphemeralReply([errorContainer(`Já existe um emoji chamado \`${duplicate.nome}\`. Use outro nome.`)])
+        );
+        return;
+      }
+
+      const duplicateNames = prepared.filter((item, index) => prepared.some((other, otherIndex) => otherIndex < index && other.nome === item.nome));
+      if (duplicateNames.length > 0) {
+        await interaction.reply(v2EphemeralReply([errorContainer("Os emojis do comando precisam ter nomes diferentes.")]));
+        return;
+      }
 
       await interaction.deferReply();
 
-      const newEmoji = await guild.emojis
-        .create({
+      const created = [];
+      for (const item of prepared) {
+        const ext = item.animated ? "gif" : "png";
+        const cdnUrl = `https://cdn.discordapp.com/emojis/${item.emojiId}.${ext}?size=128&quality=lossless`;
+        const newEmoji = await guild.emojis.create({
           attachment: cdnUrl,
-          name: nome,
-          reason: `[${interaction.user.tag}] Copiado via /emoji add (ID origem: ${emojiId})`,
-        })
-        .catch((err: Error) => {
-          throw new Error(`Falha ao criar emoji: ${err.message}`);
+          name: item.nome,
+          reason: `[${interaction.user.tag}] Copiado via /emoji add (ID origem: ${item.emojiId})`,
         });
-
-      const preview = newEmoji.animated
-        ? `<a:${newEmoji.name}:${newEmoji.id}>`
-        : `<:${newEmoji.name}:${newEmoji.id}>`;
-
-      const renamed = nome !== originalName;
+        created.push(newEmoji);
+      }
 
       await interaction.editReply(
         v2Reply([
           infoContainer({
-            title: "✅ Emoji Copiado",
+            title: `✅ ${created.length} emoji${created.length === 1 ? "" : "s"} copiado${created.length === 1 ? "" : "s"}`,
             description: [
-              `**Preview:** ${preview}`,
-              `**Nome:** \`:${newEmoji.name}:\`${renamed ? ` (original: \`:${originalName}:\`)` : ""}`,
-              `**ID:** \`${newEmoji.id}\``,
-              `**Animado:** ${newEmoji.animated ? "Sim" : "Não"}`,
+              created.map((emoji) => `${emoji.animated ? `<a:${emoji.name}:${emoji.id}>` : `<:${emoji.name}:${emoji.id}>`} \`:${emoji.name}:\``).join("\n"),
               `**Copiado por:** ${interaction.user}`,
-              `**Emojis no servidor:** ${guild.emojis.cache.size}/${limit}`,
+              `**Emojis no servidor:** ${guild.emojis.cache.size}/${limit} estáticos + ${guild.emojis.cache.filter((emoji) => emoji.animated).size}/${limit} animados`,
             ].join("\n"),
-            avatarUrl: newEmoji.url,
+            avatarUrl: created[0]?.url,
           }),
         ])
       );
