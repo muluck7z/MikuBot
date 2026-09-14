@@ -16,6 +16,12 @@ import {
   type User,
   type PartialUser,
   MessageFlags,
+  ContainerBuilder,
+  TextDisplayBuilder,
+  ThumbnailBuilder,
+  SectionBuilder,
+  MediaGalleryBuilder,
+  MediaGalleryItemBuilder,
 } from "discord.js";
 import { logger } from "../lib/logger";
 import { loadCommands } from "./loader";
@@ -54,7 +60,11 @@ const client = new Client({
 export const commands = new Collection<string, BotCommand>();
 
 const AUTO_BAN_CHANNEL_ID = "1547640224107073586";
-const WELCOME_CHANNEL_ID = "1547416800092750034";
+const WELCOME_CHANNEL_ID = "1547414989323632650";
+const WELCOME_ENGLISH_ROLE_ID = "1547925171833413763";
+const WELCOME_PORTUGUESE_ROLE_ID = "1547925061640650772";
+const WELCOME_THUMBNAIL_URL = "https://i.imgur.com/7pGzfmR.jpeg";
+const WELCOME_BANNER_URL = "https://i.imgur.com/eNi7MV4.jpeg";
 const MESSAGE_LOG_CHANNEL_ID = "1547416310063955978";
 
 async function replyAccessDenied(
@@ -433,15 +443,49 @@ export async function startBot() {
   client.on("guildMemberAdd", (member) => {
     const welcomeChannel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID);
     if (welcomeChannel?.type === ChannelType.GuildText) {
+      const isEnglish = member.roles.cache.has(WELCOME_ENGLISH_ROLE_ID);
+      const isPortugueseRole = member.roles.cache.has(WELCOME_PORTUGUESE_ROLE_ID);
+      const body = isEnglish
+        ? [
+            "> Our community is ready to welcome you! Here you can make new friends, sell, buy, and trade.",
+            `<@${member.id}>`,
+          ].join("\n")
+        : [
+            "> Nossa comunidade está pronta para receber você! Aqui você pode fazer novos amigos, vender, comprar e trocar.",
+            `<@${member.id}>`,
+          ].join("\n");
+
+      const components = [
+        new ContainerBuilder().addSectionComponents(
+          new SectionBuilder()
+            .setThumbnailAccessory(new ThumbnailBuilder().setURL(WELCOME_THUMBNAIL_URL))
+            .addTextDisplayComponents(
+              new TextDisplayBuilder().setContent("# WELCOME!"),
+              new TextDisplayBuilder().setContent(body),
+            ),
+        ),
+        new TextDisplayBuilder().setContent("ㅤㅤ"),
+        new ContainerBuilder().addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(
+            isEnglish
+              ? "> We are happy to have you here! Enjoy the community, meet new people, and have a great time."
+              : "> Ficamos felizes em ter você aqui! Aproveite a comunidade, conheça novas pessoas e divirta-se.",
+          ),
+        ),
+        new MediaGalleryBuilder().addItems(
+          new MediaGalleryItemBuilder().setURL(WELCOME_BANNER_URL),
+        ),
+      ];
+
       welcomeChannel.send({
-        content: `Boas-vindas, <@${member.id}>! Seja muito bem-vindo(a) ao servidor.`,
+        components,
+        flags: MessageFlags.IsComponentsV2,
         allowedMentions: { users: [member.id] },
-      }).then((welcomeMessage) => {
-        setTimeout(() => {
-          welcomeMessage.delete().catch(() => null);
-        }, 20_000);
       }).catch((err) =>
-        logger.error({ err, memberId: member.id, channelId: WELCOME_CHANNEL_ID }, "Falha ao enviar boas-vindas")
+        logger.error(
+          { err, memberId: member.id, channelId: WELCOME_CHANNEL_ID, isEnglish, isPortugueseRole },
+          "Falha ao enviar boas-vindas",
+        )
       );
     }
 
