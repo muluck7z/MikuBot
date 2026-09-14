@@ -324,6 +324,8 @@ export async function handleButton(interaction: ButtonInteraction) {
       await handleLojaButton(interaction, parts);
     } else if (ns === "inventario") {
       await handleInventarioButton(interaction, parts);
+    } else if (ns === "emoji") {
+      await handleEmojiButton(interaction, action!, parts);
     } else if (ns === "reset") {
       await handleResetButton(interaction, parts);
     } else {
@@ -676,6 +678,57 @@ async function handleTicketButton(
 }
 
 // ─── Sorteio ──────────────────────────────────────────────────────────────────
+
+async function handleEmojiButton(
+  interaction: ButtonInteraction,
+  action: string,
+  parts: string[]
+) {
+  if (action !== "remove_all_confirm" && action !== "remove_all_cancel") return;
+
+  const requesterId = parts[2];
+  if (requesterId !== interaction.user.id) {
+    await interaction.reply(v2EphemeralReply([errorContainer("Somente quem iniciou esta confirmação pode usá-la.")]));
+    return;
+  }
+
+  if (action === "remove_all_cancel") {
+    await interaction.update(v2EphemeralReply([infoContainer({
+      title: "Remoção cancelada",
+      description: "Nenhum emoji foi removido.",
+    })]));
+    return;
+  }
+
+  const guild = interaction.guild;
+  const member = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+  if (!guild || !member || !member.permissions.has(PermissionFlagsBits.ManageGuildExpressions)) {
+    await interaction.update(v2EphemeralReply([errorContainer("Você não tem permissão para remover emojis do servidor.")]));
+    return;
+  }
+
+  const emojis = await guild.emojis.fetch();
+  if (emojis.size === 0) {
+    await interaction.update(v2EphemeralReply([infoContainer({
+      title: "🗑️ Remover todos os emojis",
+      description: "Não há emojis para remover.",
+    })]));
+    return;
+  }
+
+  const results = await Promise.allSettled(
+    emojis.map((emoji) => emoji.delete(`[${interaction.user.tag}] Remoção em massa via /emoji remove_all`))
+  );
+  const removed = results.filter((result) => result.status === "fulfilled").length;
+  const failed = results.length - removed;
+
+  await interaction.update(v2EphemeralReply([infoContainer({
+    title: "🗑️ Emojis removidos",
+    description: failed === 0
+      ? `**${removed} emojis** foram removidos do servidor.`
+      : `**${removed} emojis** removidos. **${failed}** não puderam ser removidos.`,
+  })]));
+}
 
 async function handleSorteioButton(
   interaction: ButtonInteraction,

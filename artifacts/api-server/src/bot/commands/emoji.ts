@@ -10,7 +10,9 @@ import {
   errorContainer,
   v2Reply,
   v2EphemeralReply,
-  COLORS,
+  dangerButton,
+  secondaryButton,
+  row,
 } from "../v2/index";
 
 const EMOJI_REGEX = /<(a?):([a-zA-Z0-9_]{2,32}):(\d{17,20})>/g;
@@ -87,6 +89,9 @@ export const emojiCommand: BotCommand = {
     .addSubcommand((sub) =>
       sub.setName("list").setDescription("Lista todos os emojis customizados do servidor")
     )
+    .addSubcommand((sub) =>
+      sub.setName("remove_all").setDescription("Remove todos os emojis customizados do servidor")
+    )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuildExpressions),
 
   async execute(interaction: ChatInputCommandInteraction) {
@@ -95,7 +100,32 @@ export const emojiCommand: BotCommand = {
 
     const sub = interaction.options.getSubcommand();
 
-    if (sub === "add") {
+    if (sub === "remove_all") {
+      const emojis = await guild.emojis.fetch();
+      if (emojis.size === 0) {
+        await interaction.reply(v2EphemeralReply([infoContainer({
+          title: "🗑️ Remover todos os emojis",
+          description: "Este servidor não possui emojis customizados.",
+        })]));
+        return;
+      }
+
+      await interaction.reply(
+        v2Reply(
+          [infoContainer({
+            title: "⚠️ Remover todos os emojis",
+            description: `Esta ação removerá permanentemente **${emojis.size} emojis** deste servidor.\n\nConfirme somente se tiver certeza.`,
+          })],
+          {
+            ephemeral: true,
+            buttons: [row(
+              dangerButton(`emoji:remove_all_confirm:${interaction.user.id}`, "Remover todos"),
+              secondaryButton(`emoji:remove_all_cancel:${interaction.user.id}`, "Cancelar")
+            )],
+          }
+        )
+      );
+    } else if (sub === "add") {
       const emojiInput = interaction.options.getString("emoji", true).trim();
       const nomeCustom = interaction.options.getString("nome");
 
