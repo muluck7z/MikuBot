@@ -440,11 +440,18 @@ export async function startBot() {
     return normalized.length > 1500 ? `${normalized.slice(0, 1500)}…` : normalized;
   }
 
-  client.on("guildMemberAdd", (member) => {
+  client.on("guildMemberAdd", async (member) => {
+    const currentMember = await member.guild.members
+      .fetch({ user: member.id, force: true })
+      .catch((err) => {
+        logger.warn({ err, memberId: member.id }, "Não foi possível atualizar os cargos do novo membro");
+        return member;
+      });
     const welcomeChannel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID);
     if (welcomeChannel?.type === ChannelType.GuildText) {
-      const isEnglish = member.roles.cache.has(WELCOME_ENGLISH_ROLE_ID);
-      const isPortugueseRole = member.roles.cache.has(WELCOME_PORTUGUESE_ROLE_ID);
+      const roleIds = new Set(currentMember.roles.cache.keys());
+      const isEnglish = roleIds.has(WELCOME_ENGLISH_ROLE_ID);
+      const isPortugueseRole = roleIds.has(WELCOME_PORTUGUESE_ROLE_ID);
       const body = isEnglish
         ? [
             "> Our community is ready to welcome you! Here you can make new friends, sell, buy, and trade.",
@@ -483,7 +490,14 @@ export async function startBot() {
         allowedMentions: { users: [member.id] },
       }).catch((err) =>
         logger.error(
-          { err, memberId: member.id, channelId: WELCOME_CHANNEL_ID, isEnglish, isPortugueseRole },
+          {
+            err,
+            memberId: member.id,
+            channelId: WELCOME_CHANNEL_ID,
+            isEnglish,
+            isPortugueseRole,
+            roleIds: Array.from(roleIds),
+          },
           "Falha ao enviar boas-vindas",
         )
       );
